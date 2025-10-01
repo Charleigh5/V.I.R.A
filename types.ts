@@ -125,6 +125,11 @@ export interface Project {
   name: string;
   opportunityNumber: string;
   status: ProjectStatus;
+  createdAt: string; // ISO date string
+  sourceFiles: {
+      salesforceFileNames: string[];
+      emailFileNames: string[];
+  };
   data?: Omit<SynthesizedProjectData, 'image_reports'>;
   images?: ProjectImage[];
 }

@@ -188,7 +188,7 @@ const summarizeTextIfNeeded = async (text: string, contentType: string, charLimi
 };
 
 
-export const analyzeProjectFiles = async (salesforceMd: string, emailContent: string, images: File[], modelChoice: string): Promise<SynthesizedProjectData> => {
+export const analyzeProjectFiles = async (salesforceMd: string, emailContent: string, images: File[]): Promise<SynthesizedProjectData> => {
   const MAX_EMAIL_CHARS = 800000; // ~200k tokens
   const MAX_MD_CHARS = 200000; // ~50k tokens
 

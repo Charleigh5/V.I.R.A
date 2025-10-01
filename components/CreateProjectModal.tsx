@@ -8,7 +8,12 @@ import { resizeAndCompressImage } from '../utils/imageUtils';
 interface CreateProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAnalysisComplete: (data: SynthesizedProjectData, imageFiles: File[]) => void;
+  onAnalysisComplete: (
+    data: SynthesizedProjectData,
+    imageFiles: File[],
+    projectName: string,
+    sourceFiles: { salesforceFileNames: string[], emailFileNames: string[] }
+  ) => void;
 }
 
 const fileReader = (file: File): Promise<string> => {
@@ -160,9 +165,9 @@ const FileInput: React.FC<{
 
 
 const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose, onAnalysisComplete }) => {
+  const [projectName, setProjectName] = useState('');
   const [salesforceFiles, setSalesforceFiles] = useState<File[]>([]);
   const [emailFiles, setEmailFiles] = useState<File[]>([]);
-  const [modelChoice, setModelChoice] = useState('pro');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ message: string; percentage: number } | null>(null);
@@ -173,6 +178,10 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
   
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
+     if (!projectName.trim()) {
+        setError("Please enter a project name.");
+        return;
+    }
     const mdFile = salesforceFiles.find(f => f.name.endsWith('.md'));
     const textEmailFile = emailFiles.find(f => /\.(txt|eml|csv)$/i.test(f.name));
 
@@ -208,10 +217,15 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
       }
 
       setProgress({ message: 'Condensing large text files...', percentage: 65 });
-      const synthesizedData: SynthesizedProjectData = await analyzeProjectFiles(salesforceContent, emailContent, processedImages, modelChoice);
+      const synthesizedData: SynthesizedProjectData = await analyzeProjectFiles(salesforceContent, emailContent, processedImages);
       
       setProgress({ message: 'Finalizing analysis...', percentage: 90 });
-      onAnalysisComplete(synthesizedData, processedImages);
+      const sourceFiles = {
+          salesforceFileNames: salesforceFiles.map(f => f.name),
+          emailFileNames: emailFiles.map(f => f.name),
+      };
+
+      onAnalysisComplete(synthesizedData, processedImages, projectName, sourceFiles);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unknown error occurred.");
@@ -219,7 +233,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
       setIsLoading(false);
       setProgress(null);
     }
-  }, [salesforceFiles, emailFiles, onAnalysisComplete, modelChoice]);
+  }, [projectName, salesforceFiles, emailFiles, onAnalysisComplete]);
 
 
   return (
@@ -227,6 +241,19 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && <div className="bg-red-100 border border-accent-red text-accent-red px-4 py-3 rounded relative" role="alert">{error}</div>}
         
+        <div>
+            <label htmlFor="project-name" className="block text-sm font-medium text-neutral-700">Project Name</label>
+            <input
+                type="text"
+                id="project-name"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
+                placeholder="e.g., Q3 Marketing Campaign Analysis"
+                required
+            />
+        </div>
+
         <FileInput 
           label="Salesforce Files (.md + images)"
           files={salesforceFiles}
@@ -242,38 +269,6 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
           accept=".txt,.eml,text/plain,.csv,image/png,image/jpeg,image/webp"
           id="email-files-input"
         />
-
-        <div>
-            <label htmlFor="model-select" className="block text-sm font-medium text-neutral-700">AI Model</label>
-            <select
-                id="model-select"
-                value={modelChoice}
-                onChange={(e) => setModelChoice(e.target.value)}
-                className="mt-1 block w-full pl-3 pr-10 py-2 text-base bg-white text-neutral-900 border-neutral-300 shadow-sm focus:outline-none focus:ring-primary-blue focus:border-primary-blue sm:text-sm rounded-md"
-                disabled={isLoading}
-            >
-                <option value="pro">Gemini 2.5 Pro (Recommended)</option>
-                <option value="flash">Gemini 2.5 Flash (Faster)</option>
-            </select>
-            <div className="mt-3 text-xs text-neutral-600 space-y-3">
-                <div>
-                    <p className="font-semibold text-neutral-700">Gemini 2.5 Pro (Recommended)</p>
-                    <ul className="list-disc pl-5 mt-1 space-y-1">
-                        <li><span className="font-medium">Best for:</span> Complex analysis where accuracy, deep reasoning, and nuance are critical.</li>
-                        <li><span className="font-medium">Strength:</span> Provides the highest quality, most detailed insights.</li>
-                        <li><span className="font-medium">Downside:</span> Slower processing time compared to Flash.</li>
-                    </ul>
-                </div>
-                <div>
-                    <p className="font-semibold text-neutral-700">Gemini 2.5 Flash (Faster)</p>
-                    <ul className="list-disc pl-5 mt-1 space-y-1">
-                        <li><span className="font-medium">Best for:</span> Rapid analysis and tasks where speed is more important than the highest level of detail.</li>
-                        <li><span className="font-medium">Strength:</span> Significantly faster response times.</li>
-                        <li><span className="font-medium">Downside:</span> May provide less nuanced analysis than the Pro model.</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
         
         {isLoading && progress && (
             <div className="w-full">
@@ -289,7 +284,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
 
         <div className="flex justify-end space-x-4">
           <Button type="button" variant="secondary" onClick={onClose} disabled={isLoading}>Cancel</Button>
-          <Button type="submit" variant="primary" isLoading={isLoading} disabled={salesforceFiles.length === 0 || emailFiles.length === 0}>
+          <Button type="submit" variant="primary" isLoading={isLoading} disabled={salesforceFiles.length === 0 || emailFiles.length === 0 || !projectName.trim()}>
             {isLoading ? 'Processing...' : 'Analyze Project'}
           </Button>
         </div>

@@ -12,10 +12,17 @@ const App: React.FC = () => {
   const [isReviewModalOpen, setReviewModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<{
     textData: Omit<SynthesizedProjectData, 'image_reports'>,
-    imageData: RawImageAnalysis[]
+    imageData: RawImageAnalysis[],
+    projectName: string,
+    sourceFiles: { salesforceFileNames: string[], emailFileNames:string[] }
   } | null>(null);
 
-  const handleAnalysisComplete = useCallback((synthesizedData: SynthesizedProjectData, imageFiles: File[]) => {
+  const handleAnalysisComplete = useCallback((
+    synthesizedData: SynthesizedProjectData,
+    imageFiles: File[],
+    projectName: string,
+    sourceFiles: { salesforceFileNames: string[], emailFileNames: string[] }
+  ) => {
     const { image_reports, ...textData } = synthesizedData;
     
     const rawImageAnalyses = image_reports?.map((report, index) => ({
@@ -23,7 +30,7 @@ const App: React.FC = () => {
         base64Data: URL.createObjectURL(imageFiles.find(f => f.name === report.fileName) || imageFiles[index])
     })) || [];
 
-    setAnalysisResult({ textData, imageData: rawImageAnalyses });
+    setAnalysisResult({ textData, imageData: rawImageAnalyses, projectName, sourceFiles });
     setCreateModalOpen(false);
     setReviewModalOpen(true);
   }, []);
@@ -33,11 +40,13 @@ const App: React.FC = () => {
 
     const newProject: Project = {
       id: `proj-${Date.now()}`,
-      name: analysisResult.textData.project_details.project_name,
+      name: analysisResult.projectName,
       opportunityNumber: analysisResult.textData.project_details.opportunity_number,
       status: 'READY' as any,
       data: analysisResult.textData,
       images: finalImages,
+      createdAt: new Date().toISOString(),
+      sourceFiles: analysisResult.sourceFiles,
     };
 
     setProjects(prevProjects => [...prevProjects, newProject]);
