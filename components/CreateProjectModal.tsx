@@ -4,6 +4,7 @@ import Button from './ui/Button';
 import { analyzeProjectFiles } from '../services/geminiService';
 import { SynthesizedProjectData } from '../types';
 import { resizeAndCompressImage } from '../utils/imageUtils';
+import Checkbox from './ui/Checkbox';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -12,7 +13,8 @@ interface CreateProjectModalProps {
     data: SynthesizedProjectData,
     imageFiles: File[],
     projectName: string,
-    sourceFiles: { salesforceFileNames: string[], emailFileNames: string[] }
+    sourceFiles: { salesforceFileNames: string[], emailFileNames: string[] },
+    autoGenerateName: boolean
   ) => void;
 }
 
@@ -166,6 +168,7 @@ const FileInput: React.FC<{
 
 const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose, onAnalysisComplete }) => {
   const [projectName, setProjectName] = useState('');
+  const [autoGenerateName, setAutoGenerateName] = useState(false);
   const [salesforceFiles, setSalesforceFiles] = useState<File[]>([]);
   const [emailFiles, setEmailFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -178,7 +181,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
   
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-     if (!projectName.trim()) {
+     if (!autoGenerateName && !projectName.trim()) {
         setError("Please enter a project name.");
         return;
     }
@@ -225,7 +228,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
           emailFileNames: emailFiles.map(f => f.name),
       };
 
-      onAnalysisComplete(synthesizedData, processedImages, projectName, sourceFiles);
+      onAnalysisComplete(synthesizedData, processedImages, projectName, sourceFiles, autoGenerateName);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unknown error occurred.");
@@ -233,7 +236,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
       setIsLoading(false);
       setProgress(null);
     }
-  }, [projectName, salesforceFiles, emailFiles, onAnalysisComplete]);
+  }, [projectName, salesforceFiles, emailFiles, onAnalysisComplete, autoGenerateName]);
 
 
   return (
@@ -242,15 +245,25 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
         {error && <div className="bg-red-100 border border-accent-red text-accent-red px-4 py-3 rounded relative" role="alert">{error}</div>}
         
         <div>
-            <label htmlFor="project-name" className="block text-sm font-medium text-neutral-700">Project Name</label>
+            <div className="flex justify-between items-center mb-2">
+                <label htmlFor="project-name" className="block text-sm font-medium text-neutral-700">
+                    Project Name
+                </label>
+                <Checkbox
+                    label="Auto-generate from opportunity"
+                    checked={autoGenerateName}
+                    onChange={(e) => setAutoGenerateName(e.target.checked)}
+                />
+            </div>
             <input
                 type="text"
                 id="project-name"
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
-                className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
-                placeholder="e.g., Q3 Marketing Campaign Analysis"
-                required
+                className="block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm bg-white text-neutral-900 placeholder-neutral-500 disabled:bg-neutral-100 disabled:cursor-not-allowed disabled:placeholder-neutral-600"
+                placeholder={autoGenerateName ? "Will be generated from file content" : "e.g., Q3 Marketing Campaign Analysis"}
+                required={!autoGenerateName}
+                disabled={autoGenerateName}
             />
         </div>
 
@@ -284,7 +297,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
 
         <div className="flex justify-end space-x-4">
           <Button type="button" variant="secondary" onClick={onClose} disabled={isLoading}>Cancel</Button>
-          <Button type="submit" variant="primary" isLoading={isLoading} disabled={salesforceFiles.length === 0 || emailFiles.length === 0 || !projectName.trim()}>
+          <Button type="submit" variant="primary" isLoading={isLoading} disabled={salesforceFiles.length === 0 || emailFiles.length === 0 || (!autoGenerateName && !projectName.trim())}>
             {isLoading ? 'Processing...' : 'Analyze Project'}
           </Button>
         </div>

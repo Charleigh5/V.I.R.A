@@ -14,14 +14,16 @@ const App: React.FC = () => {
     textData: Omit<SynthesizedProjectData, 'image_reports'>,
     imageData: RawImageAnalysis[],
     projectName: string,
-    sourceFiles: { salesforceFileNames: string[], emailFileNames:string[] }
+    sourceFiles: { salesforceFileNames: string[], emailFileNames:string[] },
+    autoGenerateName: boolean;
   } | null>(null);
 
   const handleAnalysisComplete = useCallback((
     synthesizedData: SynthesizedProjectData,
     imageFiles: File[],
     projectName: string,
-    sourceFiles: { salesforceFileNames: string[], emailFileNames: string[] }
+    sourceFiles: { salesforceFileNames: string[], emailFileNames: string[] },
+    autoGenerateName: boolean
   ) => {
     const { image_reports, ...textData } = synthesizedData;
     
@@ -30,7 +32,7 @@ const App: React.FC = () => {
         base64Data: URL.createObjectURL(imageFiles.find(f => f.name === report.fileName) || imageFiles[index])
     })) || [];
 
-    setAnalysisResult({ textData, imageData: rawImageAnalyses, projectName, sourceFiles });
+    setAnalysisResult({ textData, imageData: rawImageAnalyses, projectName, sourceFiles, autoGenerateName });
     setCreateModalOpen(false);
     setReviewModalOpen(true);
   }, []);
@@ -38,9 +40,13 @@ const App: React.FC = () => {
   const handleProjectCreate = useCallback((finalImages: ProjectImage[]) => {
     if (!analysisResult) return;
 
+    const finalProjectName = analysisResult.autoGenerateName
+        ? analysisResult.textData.project_details.project_name
+        : analysisResult.projectName;
+
     const newProject: Project = {
       id: `proj-${Date.now()}`,
-      name: analysisResult.projectName,
+      name: finalProjectName,
       opportunityNumber: analysisResult.textData.project_details.opportunity_number,
       status: 'READY' as any,
       data: analysisResult.textData,

@@ -161,6 +161,15 @@ const fileToGenerativePart = (file: File) => {
     });
 };
 
+const summarizeSingleChunk = async (promptText: string): Promise<string> => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: promptText,
+        config: { temperature: 0.1 },
+    });
+    return response.text;
+};
+
 const summarizeTextIfNeeded = async (text: string, contentType: string, charLimit: number): Promise<string> => {
     if (text.length <= charLimit) {
         return text;
@@ -168,18 +177,49 @@ const summarizeTextIfNeeded = async (text: string, contentType: string, charLimi
 
     console.warn(`${contentType} content is too long (${text.length} chars). Summarizing...`);
     
+    // Safety margin for prompt text and model token variance. 1M tokens ~ 4M chars.
+    const API_CALL_CHAR_LIMIT = 3800000;
+
     try {
-        const summaryPrompt = `Please summarize the following document, retaining all critical information such as names, dates, financial figures, action items, and key decisions. The summary needs to be comprehensive yet concise as it will be used by another AI for analysis. Here is the document:\n\n---\n\n${text}`;
+        let summary;
+        if (text.length <= API_CALL_CHAR_LIMIT) {
+            // Text is long but fits in a single API call
+            const prompt = `Please summarize the following document, retaining all critical information such as names, dates, financial figures, action items, and key decisions. The summary needs to be comprehensive yet concise as it will be used by another AI for analysis. Here is the document:\n\n---\n\n${text}`;
+            summary = await summarizeSingleChunk(prompt);
+        } else {
+            // Text is too long for one call, so we chunk it (MapReduce)
+            console.warn(`${contentType} is extremely long (${text.length} chars). Using chunked summarization.`);
+            
+            const chunks: string[] = [];
+            for (let i = 0; i < text.length; i += API_CALL_CHAR_LIMIT) {
+                chunks.push(text.substring(i, i + API_CALL_CHAR_LIMIT));
+            }
+            console.log(`Split content into ${chunks.length} chunks.`);
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: summaryPrompt,
-            config: { temperature: 0.1 },
-        });
+            const chunkSummaryPromises = chunks.map((chunk, index) => {
+                const prompt = `This is part ${index + 1} of ${chunks.length} of a larger document. Please summarize the following text, retaining all critical information such as names, dates, financial figures, action items, and key decisions. The summary needs to be comprehensive yet concise. Here is the text chunk:\n\n---\n\n${chunk}`;
+                return summarizeSingleChunk(prompt);
+            });
 
-        const summary = response.text;
+            const chunkSummaries = await Promise.all(chunkSummaryPromises);
+
+            const combinedSummaries = chunkSummaries.join('\n\n---\n\n');
+            
+            console.log(`Combined intermediate summaries. Total length: ${combinedSummaries.length} chars.`);
+
+            if (combinedSummaries.length > API_CALL_CHAR_LIMIT) {
+                console.warn(`Combined summaries are still too long for a final summarization pass. Using combined summaries directly, which may affect quality.`);
+                summary = combinedSummaries;
+            } else {
+                // Final summarization pass to create a cohesive narrative from the chunk summaries
+                const finalSummaryPrompt = `The following are separate summaries from a very long document. Please synthesize them into a single, cohesive final summary, retaining all critical details like names, dates, and action items.\n\n---\n\n${combinedSummaries}`;
+                summary = await summarizeSingleChunk(finalSummaryPrompt);
+            }
+        }
+        
         console.log(`Successfully summarized ${contentType}. Original length: ${text.length}, Summary length: ${summary.length}`);
         return `[AI-Generated Summary of ${contentType}]\n${summary}`;
+
     } catch (e) {
         console.error(`Failed to summarize ${contentType}. Falling back to truncation.`, e);
         const truncatedText = text.substring(0, charLimit);

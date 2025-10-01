@@ -1,7 +1,7 @@
-
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { ConversationNode } from '../types';
+import ConversationNodeDetailModal from './ConversationNodeDetailModal';
 
 interface ConversationMapViewProps {
   nodes: ConversationNode[];
@@ -9,8 +9,7 @@ interface ConversationMapViewProps {
 
 interface GraphNode extends d3.SimulationNodeDatum {
     id: number;
-    name: string;
-    summary: string;
+    data: ConversationNode;
 }
 
 interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
@@ -20,6 +19,8 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
 
 const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes }) => {
   const ref = useRef<SVGSVGElement>(null);
+  const [selectedNode, setSelectedNode] = useState<ConversationNode | null>(null);
+
 
   useEffect(() => {
     const svgElement = d3.select(ref.current);
@@ -39,7 +40,7 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes }) => {
         .style('background-color', '#fff')
         .html(''); // Clear previous render
 
-    const graphNodes: GraphNode[] = nodes.map(n => ({ id: n.node_id, name: n.speaker_name, summary: n.summary }));
+    const graphNodes: GraphNode[] = nodes.map(n => ({ id: n.node_id, data: n }));
     const graphLinks: GraphLink[] = nodes
         .filter(n => n.parent_node_id !== null)
         .map(n => ({ source: n.parent_node_id!, target: n.node_id }));
@@ -65,10 +66,15 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes }) => {
         .join('circle')
         .attr('r', 15)
         .attr('fill', '#4A90E2')
+        .style('cursor', 'pointer')
+        .on('click', (event, d) => {
+            if (event.defaultPrevented) return; // Ignore click if drag event occurred
+            setSelectedNode(d.data);
+        })
         .call(drag(simulation) as any);
 
     node.append('title')
-        .text((d: any) => `${d.name}: ${d.summary}`);
+        .text((d: any) => `${d.data.speaker_name}: ${d.data.summary}`);
 
     const labels = svg.append("g")
         .attr("class", "labels")
@@ -77,7 +83,7 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes }) => {
         .enter().append("text")
         .attr("dy", -20)
         .attr("text-anchor", "middle")
-        .text((d: any) => d.name)
+        .text((d: any) => d.data.speaker_name)
         .style("font-size", "10px")
         .style("fill", "#333");
 
@@ -128,11 +134,19 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes }) => {
   }
 
   return (
-    <div className="px-6 pb-6">
-        <div className="rounded-lg shadow-md overflow-hidden">
-             <svg ref={ref}></svg>
+    <>
+        <div className="px-6 pb-6">
+            <div className="rounded-lg shadow-md overflow-hidden">
+                <svg ref={ref}></svg>
+            </div>
         </div>
-    </div>
+        {selectedNode && (
+            <ConversationNodeDetailModal 
+                node={selectedNode}
+                onClose={() => setSelectedNode(null)}
+            />
+        )}
+    </>
   );
 };
 
