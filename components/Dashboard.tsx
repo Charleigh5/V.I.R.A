@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Project } from '../types';
+import { Project, FileProcessingStatus } from '../types';
 import ProjectCard from './ProjectCard';
 import ChatHistory, { ChatMessage } from './ChatHistory';
 import Button from './ui/Button';
@@ -22,11 +22,12 @@ interface DashboardProps {
   onSelectProject: (projectId: string) => void;
   chatHistory: ChatMessage[];
   isProcessing: boolean;
-  onCreateProject: (text: string, files: File[]) => void;
+  onCreateProject: (salesforceFile: File, emailFile: File, imageFiles: File[]) => void;
   onOpenTemplateModal: () => void;
+  fileStatuses: Record<string, { status: FileProcessingStatus, error?: string }>;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHistory, isProcessing, onCreateProject, onOpenTemplateModal }) => {
+const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHistory, isProcessing, onCreateProject, onOpenTemplateModal, fileStatuses }) => {
   const [salesforceFile, setSalesforceFile] = useState<File | null>(null);
   const [emailFile, setEmailFile] = useState<File | null>(null);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -98,14 +99,13 @@ const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHi
       setImageFiles(prev => prev.filter(f => f.name !== fileName));
   };
   
-  const handleCreateProject = () => {
+  const handleStartProjectCreation = () => {
       if (!salesforceFile || !emailFile) {
           setUploadError("Both a Salesforce file and an Email file are required to create a project.");
           return;
       }
       
-      const allFiles = [salesforceFile, emailFile, ...imageFiles];
-      onCreateProject("Create project from uploaded files", allFiles);
+      onCreateProject(salesforceFile, emailFile, imageFiles);
   };
 
   return (
@@ -134,6 +134,7 @@ const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHi
                     files={salesforceFile ? [salesforceFile] : []}
                     onFilesSelected={(files) => handleFileSelect(files, setSalesforceFile, isSalesforceFile, MAX_SALESFORCE_FILE_SIZE_BYTES, MAX_SALESFORCE_FILE_SIZE_MB, 'Salesforce')}
                     onFileRemove={() => setSalesforceFile(null)}
+                    fileStatuses={fileStatuses}
                 />
                  <FileImporter
                     title="Email Conversation"
@@ -142,6 +143,7 @@ const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHi
                     files={emailFile ? [emailFile] : []}
                     onFilesSelected={(files) => handleFileSelect(files, setEmailFile, isEmailFile, MAX_EMAIL_FILE_SIZE_BYTES, MAX_EMAIL_FILE_SIZE_MB, 'Email')}
                     onFileRemove={() => setEmailFile(null)}
+                    fileStatuses={fileStatuses}
                 />
             </div>
 
@@ -154,11 +156,12 @@ const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHi
                 onFileRemove={handleRemoveImage}
                 isMultiple
                 iconType="image"
+                fileStatuses={fileStatuses}
             />
             
             <div className="mt-6 text-right">
                 <Button
-                    onClick={handleCreateProject}
+                    onClick={handleStartProjectCreation}
                     isLoading={isProcessing}
                     disabled={!salesforceFile || !emailFile || isProcessing}
                 >

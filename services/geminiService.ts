@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SynthesizedProjectData } from '../types';
+import { SynthesizedProjectData, ProjectDetails, ImageAnalysisReport } from '../types';
 
 export class GeminiApiError extends Error {
   public readonly isRetryable: boolean;
@@ -9,25 +9,6 @@ export class GeminiApiError extends Error {
     this.isRetryable = isRetryable;
   }
 }
-
-const MASTER_PROMPT_TEMPLATE = `
-# SYSTEM PROMPT
-
-You are an expert project management analyst AI. Your task is to analyze the provided Salesforce data, email conversation, and images. Based on this input, generate a structured JSON object that synthesizes all information.
-
-## INSTRUCTIONS
-
-1.  **Analyze Text:** Parse the Salesforce data and email thread to identify project details, action items, conversation flow, and attachments. Correlate information between sources.
-2.  **Extract Mentioned Attachments:** Scrutinize the email conversation for any explicit mentions of file attachments (e.g., "I've attached the 'final_report.pdf'"). For each mentioned file, list its name and provide a brief context about the mention (e.g., who mentioned it and why).
-3.  **Summarize Conversation:** Create a high-level summary of the entire email thread. This summary should capture the main topic, key decisions made, critical questions asked, and any unresolved issues.
-4.  **Analyze Images:** For each image, provide a summary, extract all text (OCR) with its bounding box, detect key objects with their bounding boxes, and identify any part numbers or people.
-5.  **Output:** Your entire output must be a single, valid JSON object conforming to the schema provided in the API configuration. Bounding box coordinates must be normalized (0.0 to 1.0).
-
----
-# INPUT DATA
-
-{{{context_blob}}}
-`;
 
 const boundingBoxSchema = {
     type: Type.OBJECT,
@@ -49,8 +30,7 @@ const analyzedDetailSchema = {
     required: ["text", "boundingBox"],
 };
 
-
-const responseSchema = {
+const salesforceSchema = {
   type: Type.OBJECT,
   properties: {
     project_details: {
@@ -63,6 +43,13 @@ const responseSchema = {
       },
       required: ["project_name", "opportunity_number", "account_name", "opp_revenue"]
     },
+  },
+  required: ["project_details"]
+};
+
+const emailSchema = {
+  type: Type.OBJECT,
+  properties: {
     action_items: {
       type: Type.ARRAY,
       items: {
@@ -130,24 +117,22 @@ const responseSchema = {
         },
         required: ["file_name", "context"]
       }
-    },
-    image_reports: {
-        type: Type.ARRAY,
-        items: {
-            type: Type.OBJECT,
-            properties: {
-                fileName: { type: Type.STRING },
-                summary: { type: Type.STRING },
-                extractedText: { type: Type.ARRAY, items: analyzedDetailSchema },
-                detectedObjects: { type: Type.ARRAY, items: analyzedDetailSchema },
-                partNumbers: { type: Type.ARRAY, items: { type: Type.STRING } },
-                people: { type: Type.ARRAY, items: { type: Type.STRING } },
-            },
-            required: ["fileName", "summary", "extractedText", "detectedObjects", "partNumbers", "people"]
-        }
     }
   },
-  required: ["project_details", "action_items", "conversation_summary", "conversation_nodes", "attachments", "mentioned_attachments"]
+  required: ["action_items", "conversation_summary", "conversation_nodes", "attachments", "mentioned_attachments"]
+};
+
+const imageReportSchema = {
+    type: Type.OBJECT,
+    properties: {
+        fileName: { type: Type.STRING, description: "The exact filename of the image being analyzed." },
+        summary: { type: Type.STRING },
+        extractedText: { type: Type.ARRAY, items: analyzedDetailSchema },
+        detectedObjects: { type: Type.ARRAY, items: analyzedDetailSchema },
+        partNumbers: { type: Type.ARRAY, items: { type: Type.STRING } },
+        people: { type: Type.ARRAY, items: { type: Type.STRING } },
+    },
+    required: ["fileName", "summary", "extractedText", "detectedObjects", "partNumbers", "people"]
 };
 
 
@@ -237,57 +222,76 @@ const summarizeTextIfNeeded = async (text: string, contentType: string, charLimi
 };
 
 const isTextFile = (file: File): boolean => /\.(md|txt|csv|html|json|eml)$/i.test(file.name);
+const MAX_TEXT_CHARS = 200000; // ~50k tokens
 
-export const analyzeProjectFiles = async (salesforceFile: File, emailFile: File, images: File[]): Promise<SynthesizedProjectData> => {
-  const MAX_MD_CHARS = 200000; // ~50k tokens
-  const modelToUse = 'gemini-2.5-flash';
-  
-  try {
-    const parts: any[] = [];
-    let contextBlob = '';
+const makeApiCall = async (file: File, prompt: string, schema: any) => {
+    const modelToUse = 'gemini-2.5-flash';
+    try {
+        const parts: any[] = [];
+        let finalPrompt = prompt;
 
-    // Process Salesforce File
-    if (isTextFile(salesforceFile)) {
-        const salesforceContent = await salesforceFile.text();
-        const processedSalesforceContent = await summarizeTextIfNeeded(salesforceContent, 'Salesforce Data', MAX_MD_CHARS);
-        contextBlob += `\n## Salesforce Data ##\n${processedSalesforceContent}\n`;
-    } else { // It's an image or other binary
-        parts.push(await fileToGenerativePart(salesforceFile));
-        contextBlob += `\n## Salesforce Data ##\nThe Salesforce data is provided in the attached file: ${salesforceFile.name}. Please analyze its content.\n`;
+        if (isTextFile(file)) {
+            const fileContent = await file.text();
+            const processedContent = await summarizeTextIfNeeded(fileContent, `File (${file.name})`, MAX_TEXT_CHARS);
+            finalPrompt += `\n\n## File Content: ${file.name} ##\n${processedContent}\n`;
+        } else { // Image or other binary
+            parts.push(await fileToGenerativePart(file));
+            finalPrompt += `\n\n## File: ${file.name} ##\nThe data is provided in the attached file. Please analyze its content based on the instructions.`;
+        }
+
+        parts.unshift({ text: finalPrompt });
+
+        const response = await ai.models.generateContent({
+            model: modelToUse,
+            contents: { parts: parts },
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: schema,
+                temperature: 0.2,
+            },
+        });
+
+        const jsonText = response.text.trim();
+        const cleanedJson = jsonText.replace(/^```json\s*|```$/g, '');
+        return JSON.parse(cleanedJson);
+
+    } catch (error) {
+        console.error(`Error analyzing file ${file.name} with Gemini:`, error);
+        const message = error instanceof Error ? error.message.toLowerCase() : '';
+        const isRetryable = message.includes('internal') || message.includes('server') || message.includes('500') || message.includes('network');
+        throw new GeminiApiError(
+            `The AI service failed to process ${file.name}. ${isRetryable ? 'This might be a temporary issue.' : 'Please check if your file content is valid or too large.'}`,
+            isRetryable
+        );
     }
+};
 
-    // Process Email File
-    parts.push(await fileToGenerativePart(emailFile));
-    contextBlob += `\n## Email Conversation ##\nThe email conversation is provided in the attached file: ${emailFile.name}.\n`;
-    
-    // Process additional images
-    const imageParts = await Promise.all(images.map(fileToGenerativePart));
-    parts.push(...imageParts);
-    if (images.length > 0) {
-        const imageFileNames = images.map(f => f.name).join(', ');
-        contextBlob += `\n\n The following image files have also been provided for analysis: ${imageFileNames}`;
-    }
+export const analyzeSalesforceFile = async (file: File): Promise<{ project_details: ProjectDetails }> => {
+    const prompt = `
+        You are an expert project management analyst.
+        Your task is to analyze the provided Salesforce data.
+        Based on this input, extract the project details.
+        Your entire output must be a single, valid JSON object conforming to the provided schema.
+    `;
+    return makeApiCall(file, prompt, salesforceSchema);
+};
 
-    let prompt = MASTER_PROMPT_TEMPLATE.replace('{{{context_blob}}}', contextBlob);
+export const analyzeEmailConversation = async (file: File): Promise<Omit<SynthesizedProjectData, 'project_details' | 'image_reports'>> => {
+    const prompt = `
+        You are an expert project management analyst.
+        Your task is to analyze the provided email conversation.
+        Based on this input, generate a structured JSON object that synthesizes all relevant information.
+        
+        ## INSTRUCTIONS
+        1. Parse the email thread to identify action items, the conversation flow, and attachments.
+        2. Scrutinize the conversation for any explicit mentions of file attachments (e.g., "I've attached the 'final_report.pdf'"). For each, list its name and context.
+        3. Create a high-level summary of the entire email thread.
+        4. Model the conversation as a series of nodes.
+        5. Your entire output must be a single, valid JSON object conforming to the provided schema.
+    `;
+    const data = await makeApiCall(file, prompt, emailSchema);
 
-    // The text prompt must be the first part
-    parts.unshift({text: prompt});
-
-    const response = await ai.models.generateContent({
-      model: modelToUse,
-      contents: { parts: parts },
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: responseSchema,
-        temperature: 0.2,
-      },
-    });
-
-    const jsonText = response.text.trim();
-    const cleanedJson = jsonText.replace(/^```json\s*|```$/g, '');
-    const data = JSON.parse(cleanedJson);
-    
-    // Defensively ensure arrays exist before mapping
+    // Post-processing to add unique IDs to action items
     if (data.action_items && Array.isArray(data.action_items)) {
       data.action_items = data.action_items.map((item: any, index: number) => ({
         ...item,
@@ -296,34 +300,33 @@ export const analyzeProjectFiles = async (salesforceFile: File, emailFile: File,
     } else {
       data.action_items = [];
     }
-    
-    if (!data.conversation_summary) {
-        data.conversation_summary = "No conversation summary was generated.";
-    }
-    if (!data.conversation_nodes || !Array.isArray(data.conversation_nodes)) {
-        data.conversation_nodes = [];
-    }
-    if (!data.attachments || !Array.isArray(data.attachments)) {
-        data.attachments = [];
-    }
-    if (!data.mentioned_attachments || !Array.isArray(data.mentioned_attachments)) {
-        data.mentioned_attachments = [];
-    }
-     if (!data.image_reports || !Array.isArray(data.image_reports)) {
-        data.image_reports = [];
-    }
+
+    // Defensive checks for other fields
+    if (!data.conversation_summary) data.conversation_summary = "No conversation summary was generated.";
+    if (!data.conversation_nodes || !Array.isArray(data.conversation_nodes)) data.conversation_nodes = [];
+    if (!data.attachments || !Array.isArray(data.attachments)) data.attachments = [];
+    if (!data.mentioned_attachments || !Array.isArray(data.mentioned_attachments)) data.mentioned_attachments = [];
 
     return data;
-  } catch (error) {
-    console.error("Error analyzing project files with Gemini:", error);
-    
-    const message = error instanceof Error ? error.message.toLowerCase() : '';
-    // Heuristic to determine if the error is a temporary server issue or a problem with the user's input.
-    const isRetryable = message.includes('internal') || message.includes('server') || message.includes('500') || message.includes('network');
+};
 
-    throw new GeminiApiError(
-      `The AI service failed to process the request. ${isRetryable ? 'This might be a temporary issue.' : 'Please check if your file content is valid or too large.'}`,
-      isRetryable
-    );
-  }
+export const analyzeImage = async (file: File): Promise<ImageAnalysisReport> => {
+    const prompt = `
+        You are an expert visual analyst AI.
+        Your task is to analyze the provided image with filename "${file.name}".
+        
+        ## INSTRUCTIONS
+        1. Provide a concise summary of the image's content.
+        2. Extract all visible text (OCR) and provide its bounding box.
+        3. Detect key objects and provide their bounding boxes.
+        4. Identify any part numbers or people visible.
+        5. Set the 'fileName' field in your response to be exactly "${file.name}".
+        6. Your entire output must be a single, valid JSON object conforming to the provided schema. Bounding box coordinates must be normalized (0.0 to 1.0).
+    `;
+    const report = await makeApiCall(file, prompt, imageReportSchema);
+    // Ensure the filename from the prompt is correctly passed through
+    if (!report.fileName) {
+        report.fileName = file.name;
+    }
+    return report;
 };

@@ -45,7 +45,18 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
 
 
   const handleSubmit = () => {
-    if (isProcessing || (!text.trim() && files.length === 0)) return;
+    if (isProcessing || (files.length === 0)) return;
+    
+    // Sort files to find the primary ones
+    const salesforceFile = files.find(f => f.name.endsWith('.md')) || files.find(isSalesforceFile);
+    const emailFile = files.find(f => f !== salesforceFile && isEmailFile(f));
+
+    if (!salesforceFile || !emailFile) {
+        setUploadError('A Salesforce file (.md or image) and an email file are required.');
+        setTimeout(() => setUploadError(null), 5000);
+        return;
+    }
+    
     onSubmit(text, files);
     setText('');
     setFiles([]);
@@ -227,7 +238,7 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
                  <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-500 hover:text-primary-blue" aria-label="Attach files">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                 </button>
-                <button onClick={handleSubmit} disabled={isProcessing || (!text.trim() && files.length === 0)} className="p-2 text-neutral-500 hover:text-primary-blue disabled:opacity-50 disabled:cursor-not-allowed" aria-label="Send message">
+                <button onClick={handleSubmit} disabled={isProcessing || files.length === 0} className="p-2 text-neutral-500 hover:text-primary-blue disabled:opacity-50 disabled:cursor-not-allowed" aria-label="Send message">
                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
                 </button>
             </div>

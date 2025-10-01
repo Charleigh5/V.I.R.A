@@ -136,3 +136,5 @@ export interface Project {
   data?: Omit<SynthesizedProjectData, 'image_reports'>;
   images?: ProjectImage[];
 }
+
+export type FileProcessingStatus = 'processing' | 'success' | 'error';

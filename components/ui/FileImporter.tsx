@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { FileProcessingStatus } from '../../types';
 
 // Icons for different states/file types
 const UploadIcon = () => (
@@ -11,6 +12,20 @@ const ImageIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-primary-blue" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" /></svg>
 );
 
+const StatusIcon: React.FC<{ status?: FileProcessingStatus, error?: string }> = ({ status, error }) => {
+    if (!status) return null;
+
+    switch (status) {
+        case 'processing':
+            return <svg className="animate-spin h-5 w-5 text-primary-blue" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>;
+        case 'success':
+            return <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-accent-green" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>;
+        case 'error':
+            return <div className="group relative"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-accent-red" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-xs p-2 bg-neutral-800 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">{error || 'An unknown error occurred'}</div></div>;
+        default:
+            return null;
+    }
+};
 
 interface FileImporterProps {
   title: string;
@@ -22,6 +37,7 @@ interface FileImporterProps {
   isMultiple?: boolean;
   className?: string;
   iconType?: 'file' | 'image';
+  fileStatuses?: Record<string, { status: FileProcessingStatus, error?: string }>;
 }
 
 const FileImporter: React.FC<FileImporterProps> = ({
@@ -33,7 +49,8 @@ const FileImporter: React.FC<FileImporterProps> = ({
   onFileRemove,
   isMultiple = false,
   className = '',
-  iconType = 'file'
+  iconType = 'file',
+  fileStatuses = {}
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -142,6 +159,9 @@ const FileImporter: React.FC<FileImporterProps> = ({
                     {files.map(file => (
                         <div key={file.name} className="flex items-center justify-between text-left bg-white p-2 rounded-md border border-neutral-200">
                              <div className="flex items-center min-w-0">
+                                <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center mr-2">
+                                    <StatusIcon {...fileStatuses[file.name]} />
+                                </div>
                                 {iconType === 'file' ? <FileIcon/> : <ImageIcon />}
                                 <div className="ml-3 min-w-0">
                                     <p className="text-sm font-medium text-neutral-800 truncate" title={file.name}>{file.name}</p>

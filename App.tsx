@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { Project, ProjectImage, RawImageAnalysis, SynthesizedProjectData, TaskStatus, TaskPriority } from './types';
+import { Project, ProjectImage, RawImageAnalysis, SynthesizedProjectData, TaskStatus, TaskPriority, FileProcessingStatus } from './types';
 import Dashboard from './components/Dashboard';
 import ProjectWorkspace from './components/ProjectWorkspace';
 import ImageReviewModal from './components/ImageReviewModal';
 import CommandBar from './components/CommandBar';
-import { GeminiApiError, analyzeProjectFiles } from './services/geminiService';
+import { GeminiApiError, analyzeSalesforceFile, analyzeEmailConversation, analyzeImage } from './services/geminiService';
 import { resizeAndCompressImage } from './utils/imageUtils';
 import CreateFromTemplateModal from './components/CreateFromTemplateModal';
 import { projectTemplates, ProjectTemplate } from './services/templates';
@@ -130,6 +130,8 @@ const App: React.FC = () => {
     { sender: 'ai', text: "Welcome to the Project Dashboard. To create a new project, please describe your project and drop the relevant Salesforce (.md) and email thread (.txt, .eml, .csv) files into the command bar below." }
   ]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [fileProcessingStatus, setFileProcessingStatus] = useState<Record<string, { status: FileProcessingStatus, error?: string }>>({});
+
 
   const [analysisResult, setAnalysisResult] = useState<{
     textData: Omit<SynthesizedProjectData, 'image_reports'>,
@@ -152,9 +154,9 @@ const App: React.FC = () => {
   ) => {
     const { image_reports, ...textData } = synthesizedData;
     
-    const rawImageAnalyses = image_reports?.map((report, index) => ({
+    const rawImageAnalyses = image_reports?.map((report) => ({
         ...report,
-        base64Data: URL.createObjectURL(imageFiles.find(f => f.name === report.fileName) || imageFiles[index])
+        base64Data: URL.createObjectURL(imageFiles.find(f => f.name === report.fileName)!)
     })) || [];
 
     setAnalysisResult({ textData, imageData: rawImageAnalyses, sourceFiles, rawSalesforceContent, rawEmailContent });
@@ -168,50 +170,56 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleCommandSubmit = async (text: string, files: File[]) => {
-      addMessageToHistory({ sender: 'user', text: text || `Uploading ${files.length} file(s)...`});
+  const handleCreateProject = async (salesforceFile: File, emailFile: File, supportingImages: File[]) => {
+      addMessageToHistory({ sender: 'system', text: `Starting analysis of ${1 + 1 + supportingImages.length} files...` });
       setIsProcessing(true);
 
-      // Prioritize .md for salesforce, then look for other valid types.
-      const salesforceFile = files.find(f => f.name.endsWith('.md')) || files.find(isSalesforceFile);
-      // Find an email file that isn't the one we picked for Salesforce.
-      const emailFile = files.find(f => f !== salesforceFile && isEmailFile(f));
-
-      if (!salesforceFile || !emailFile) {
-          addMessageToHistory({ sender: 'system', text: "Project creation requires one Salesforce file (.md or image) and one supported email/conversation file. Please provide both."});
-          setIsProcessing(false);
-          return;
-      }
+      const allFilesForStatus = [salesforceFile, emailFile, ...supportingImages];
+      const initialStatuses = allFilesForStatus.reduce((acc, file) => {
+          acc[file.name] = { status: 'processing' };
+          return acc;
+      }, {} as Record<string, { status: FileProcessingStatus; error?: string | undefined; }>);
+      setFileProcessingStatus(initialStatuses);
       
-      const sourceContentFiles = [salesforceFile, emailFile];
-      for (const file of sourceContentFiles) {
-          const isSf = file === salesforceFile;
-          const sizeLimit = isSf ? MAX_SALESFORCE_FILE_SIZE_BYTES : MAX_EMAIL_FILE_SIZE_BYTES;
-          const sizeLimitMb = isSf ? MAX_SALESFORCE_FILE_SIZE_MB : MAX_EMAIL_FILE_SIZE_MB;
-          if (file.size > sizeLimit) {
-              addMessageToHistory({ sender: 'system', text: `File Processing Error: File "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). The limit for this file type is ${sizeLimitMb}MB.` });
-              setIsProcessing(false);
-              return;
-          }
-      }
-
       try {
-          addMessageToHistory({ sender: 'system', text: "Reading and processing files..." });
+          const salesforcePromise = analyzeSalesforceFile(salesforceFile).then(result => {
+              setFileProcessingStatus(prev => ({ ...prev, [salesforceFile.name]: { status: 'success' } }));
+              return result;
+          }).catch(e => {
+              setFileProcessingStatus(prev => ({ ...prev, [salesforceFile.name]: { status: 'error', error: e.message } }));
+              throw e;
+          });
 
-          const otherImages = files.filter(f => f !== salesforceFile && f !== emailFile && isImageFile(f));
+          const emailPromise = analyzeEmailConversation(emailFile).then(result => {
+              setFileProcessingStatus(prev => ({ ...prev, [emailFile.name]: { status: 'success' } }));
+              return result;
+          }).catch(e => {
+              setFileProcessingStatus(prev => ({ ...prev, [emailFile.name]: { status: 'error', error: e.message } }));
+              throw e;
+          });
+
+          const imageProcessingPromises = supportingImages.map(async (img) => {
+              const processedImage = await resizeAndCompressImage(img);
+              return analyzeImage(processedImage).then(result => {
+                  setFileProcessingStatus(prev => ({ ...prev, [img.name]: { status: 'success' } }));
+                  return { originalFile: img, report: result };
+              }).catch(e => {
+                  setFileProcessingStatus(prev => ({ ...prev, [img.name]: { status: 'error', error: e.message } }));
+                  throw e;
+              });
+          });
           
-          const allImagesToProcess = otherImages;
-          if (isImageFile(salesforceFile)) allImagesToProcess.push(salesforceFile);
-          if (isImageFile(emailFile)) allImagesToProcess.push(emailFile);
+          const [salesforceData, emailData, ...imageResults] = await Promise.all([
+              salesforcePromise,
+              emailPromise,
+              ...imageProcessingPromises
+          ]);
 
-          const processedImages: File[] = [];
-          for (const imageFile of allImagesToProcess) {
-              const processedImage = await resizeAndCompressImage(imageFile);
-              processedImages.push(processedImage);
-          }
-
-          addMessageToHistory({ sender: 'system', text: "Sending data for AI analysis. This may take a moment..." });
-          const synthesizedData = await analyzeProjectFiles(salesforceFile, emailFile, otherImages);
+          const synthesizedData: SynthesizedProjectData = {
+              ...salesforceData,
+              ...emailData,
+              image_reports: imageResults.map(r => r.report),
+          };
           
           const sourceFiles = {
               salesforceFileNames: [salesforceFile.name],
@@ -239,20 +247,48 @@ const App: React.FC = () => {
                   rawEmailContentForUi = `Could not read content from file "${emailFile.name}" for preview.`;
               }
           }
-
-          handleAnalysisComplete(synthesizedData, processedImages, sourceFiles, rawSalesforceContentForUi, rawEmailContentForUi);
+          
+          // Pass original image files for object URL creation
+          const originalImageFiles = imageResults.map(r => r.originalFile);
+          handleAnalysisComplete(synthesizedData, originalImageFiles, sourceFiles, rawSalesforceContentForUi, rawEmailContentForUi);
 
       } catch (err) {
-          let errorText = "An unexpected error occurred.";
-          if (err instanceof GeminiApiError) {
-              errorText = `AI Analysis Error: ${err.message}`;
-          } else if (err instanceof Error) {
-              errorText = `File Processing Error: ${err.message}`;
-          }
-          addMessageToHistory({ sender: 'system', text: errorText });
+          const errorText = err instanceof Error ? err.message : "An unknown error occurred during analysis.";
+          addMessageToHistory({ sender: 'system', text: `Project creation failed. One or more files could not be processed. Please review the errors and try again.` });
+          console.error("Parallel analysis failed:", err);
       } finally {
           setIsProcessing(false);
+          // Optionally clear statuses after a delay
+          setTimeout(() => setFileProcessingStatus({}), 5000);
       }
+  };
+
+  const handleCommandSubmit = async (text: string, files: File[]) => {
+      addMessageToHistory({ sender: 'user', text: text || `Uploading ${files.length} file(s)...`});
+
+      // Prioritize .md for salesforce, then look for other valid types.
+      const salesforceFile = files.find(f => f.name.endsWith('.md')) || files.find(isSalesforceFile);
+      // Find an email file that isn't the one we picked for Salesforce.
+      const emailFile = files.find(f => f !== salesforceFile && isEmailFile(f));
+
+      if (!salesforceFile || !emailFile) {
+          addMessageToHistory({ sender: 'system', text: "Project creation requires one Salesforce file (.md or image) and one supported email/conversation file. Please provide both."});
+          return;
+      }
+      
+      const sourceContentFiles = [salesforceFile, emailFile];
+      for (const file of sourceContentFiles) {
+          const isSf = file === salesforceFile;
+          const sizeLimit = isSf ? MAX_SALESFORCE_FILE_SIZE_BYTES : MAX_EMAIL_FILE_SIZE_BYTES;
+          const sizeLimitMb = isSf ? MAX_SALESFORCE_FILE_SIZE_MB : MAX_EMAIL_FILE_SIZE_MB;
+          if (file.size > sizeLimit) {
+              addMessageToHistory({ sender: 'system', text: `File Processing Error: File "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). The limit for this file type is ${sizeLimitMb}MB.` });
+              return;
+          }
+      }
+      const supportingImages = files.filter(f => f !== salesforceFile && f !== emailFile && isImageFile(f));
+      
+      handleCreateProject(salesforceFile, emailFile, supportingImages);
   };
 
 
@@ -347,8 +383,9 @@ const App: React.FC = () => {
                     onSelectProject={handleSelectProject}
                     chatHistory={chatHistory}
                     isProcessing={isProcessing}
-                    onCreateProject={handleCommandSubmit}
+                    onCreateProject={handleCreateProject}
                     onOpenTemplateModal={() => setTemplateModalOpen(true)}
+                    fileStatuses={fileProcessingStatus}
                 />
             )}
         </main>
