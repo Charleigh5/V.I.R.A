@@ -236,36 +236,46 @@ const summarizeTextIfNeeded = async (text: string, contentType: string, charLimi
     }
 };
 
+const isTextFile = (file: File): boolean => /\.(md|txt|csv|html|json|eml)$/i.test(file.name);
 
-export const analyzeProjectFiles = async (salesforceMd: string, emailContent: string, images: File[]): Promise<SynthesizedProjectData> => {
-  const MAX_EMAIL_CHARS = 800000; // ~200k tokens
+export const analyzeProjectFiles = async (salesforceFile: File, emailFile: File, images: File[]): Promise<SynthesizedProjectData> => {
   const MAX_MD_CHARS = 200000; // ~50k tokens
-
-  const processedSalesforceContent = await summarizeTextIfNeeded(salesforceMd, 'Salesforce Data', MAX_MD_CHARS);
-  const processedEmailContent = await summarizeTextIfNeeded(emailContent, 'Email Content', MAX_EMAIL_CHARS);
-
-  const contextBlob = `
-## Salesforce Data ##
-${processedSalesforceContent}
-
-## Email Conversation ##
-${processedEmailContent}
-  `;
-
-  let prompt = MASTER_PROMPT_TEMPLATE.replace('{{{context_blob}}}', contextBlob);
   const modelToUse = 'gemini-2.5-flash';
-
+  
   try {
-    const imageParts = await Promise.all(images.map(fileToGenerativePart));
+    const parts: any[] = [];
+    let contextBlob = '';
+
+    // Process Salesforce File
+    if (isTextFile(salesforceFile)) {
+        const salesforceContent = await salesforceFile.text();
+        const processedSalesforceContent = await summarizeTextIfNeeded(salesforceContent, 'Salesforce Data', MAX_MD_CHARS);
+        contextBlob += `\n## Salesforce Data ##\n${processedSalesforceContent}\n`;
+    } else { // It's an image or other binary
+        parts.push(await fileToGenerativePart(salesforceFile));
+        contextBlob += `\n## Salesforce Data ##\nThe Salesforce data is provided in the attached file: ${salesforceFile.name}. Please analyze its content.\n`;
+    }
+
+    // Process Email File
+    parts.push(await fileToGenerativePart(emailFile));
+    contextBlob += `\n## Email Conversation ##\nThe email conversation is provided in the attached file: ${emailFile.name}.\n`;
     
+    // Process additional images
+    const imageParts = await Promise.all(images.map(fileToGenerativePart));
+    parts.push(...imageParts);
     if (images.length > 0) {
         const imageFileNames = images.map(f => f.name).join(', ');
-        prompt += `\n\n The following image files have been provided for analysis: ${imageFileNames}`;
+        contextBlob += `\n\n The following image files have also been provided for analysis: ${imageFileNames}`;
     }
+
+    let prompt = MASTER_PROMPT_TEMPLATE.replace('{{{context_blob}}}', contextBlob);
+
+    // The text prompt must be the first part
+    parts.unshift({text: prompt});
 
     const response = await ai.models.generateContent({
       model: modelToUse,
-      contents: { parts: [{text: prompt}, ...imageParts] },
+      contents: { parts: parts },
       config: {
         responseMimeType: 'application/json',
         responseSchema: responseSchema,

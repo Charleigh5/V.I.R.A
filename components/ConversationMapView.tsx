@@ -69,7 +69,8 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allAct
         const svg = svgElement
             .attr('width', width)
             .attr('height', height)
-            .style('background-color', '#fff');
+            .style('background-color', '#fff')
+            .on('click', () => setSelectedNode(null)); // Deselect on background click
 
         const graphNodes: GraphNode[] = nodes.map(n => ({ id: n.node_id, data: n }));
         const graphLinks: GraphLink[] = nodes
@@ -84,12 +85,9 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allAct
             .force('center', d3.forceCenter(width / 2, height / 2));
         
         const link = svg.append('g')
-            .attr('stroke', '#999')
-            .attr('stroke-opacity', 0.6)
             .selectAll('line')
             .data(graphLinks)
-            .join('line')
-            .attr('stroke-width', 1.5);
+            .join('line');
         
         const node = svg.append('g')
             .attr('stroke', '#fff')
@@ -98,11 +96,11 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allAct
             .data(graphNodes)
             .join('circle')
             .attr('r', 15)
-            .attr('fill', '#4A90E2')
             .style('cursor', 'pointer')
             .on('click', (event, d) => {
+                event.stopPropagation();
                 if (event.defaultPrevented) return; // Ignore click if drag event occurred
-                setSelectedNode(d.data);
+                setSelectedNode(prev => (prev && prev.node_id === d.data.node_id ? null : d.data));
             })
             .call(drag(simulation) as any);
 
@@ -119,6 +117,62 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allAct
             .text((d) => d.data.speaker_name)
             .style("font-size", "10px")
             .style("fill", "#333");
+
+        const selectedNodeId = selectedNode ? selectedNode.node_id : null;
+        const connectedNodeIds = new Set<number>();
+
+        if (selectedNodeId !== null) {
+            connectedNodeIds.add(selectedNodeId);
+            const selectedGraphNode = nodes.find(n => n.node_id === selectedNodeId);
+            if (selectedGraphNode && selectedGraphNode.parent_node_id) {
+                connectedNodeIds.add(selectedGraphNode.parent_node_id);
+            }
+            nodes.forEach(n => {
+                if (n.parent_node_id === selectedNodeId) {
+                    connectedNodeIds.add(n.node_id);
+                }
+            });
+        }
+        
+        node
+            .transition().duration(300)
+            .attr('fill', d => {
+                if (selectedNodeId === null) return '#4A90E2'; // default blue
+                if (d.id === selectedNodeId) return '#F5A623'; // accent-yellow
+                if (connectedNodeIds.has(d.id)) return '#A4C8F0'; // light blue
+                return '#E0E0E0'; // neutral-300 (dimmed)
+            })
+            .attr('r', d => (d.id === selectedNodeId ? 20 : 15));
+
+        link
+            .transition().duration(300)
+            .attr('stroke', d => {
+                const sourceId = (d.source as GraphNode).id;
+                const targetId = (d.target as GraphNode).id;
+                if (selectedNodeId === null) return '#999';
+                if ((sourceId === selectedNodeId && connectedNodeIds.has(targetId)) || (targetId === selectedNodeId && connectedNodeIds.has(sourceId))) {
+                    return '#F5A623';
+                }
+                return '#E0E0E0';
+            })
+            .attr('stroke-opacity', d => selectedNodeId === null ? 0.6 : 1)
+            .attr('stroke-width', d => {
+                const sourceId = (d.source as GraphNode).id;
+                const targetId = (d.target as GraphNode).id;
+                if (selectedNodeId === null) return 1.5;
+                if ((sourceId === selectedNodeId && connectedNodeIds.has(targetId)) || (targetId === selectedNodeId && connectedNodeIds.has(sourceId))) {
+                    return 3;
+                }
+                return 1;
+            });
+
+        labels
+            .transition().duration(300)
+            .style('opacity', d => {
+                if (selectedNodeId === null) return 1;
+                return connectedNodeIds.has(d.id) || d.id === selectedNodeId ? 1 : 0.3;
+            });
+
 
         simulation.on('tick', () => {
             link
@@ -147,7 +201,7 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allAct
     return () => {
         resizeObserver.disconnect();
     };
-  }, [nodes]);
+  }, [nodes, selectedNode]);
 
   if (nodes.length === 0) {
     return (

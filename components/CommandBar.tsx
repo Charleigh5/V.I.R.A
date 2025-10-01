@@ -1,16 +1,16 @@
 import React, { useState, useCallback, useRef, useMemo } from 'react';
 import Button from './ui/Button';
 import {
-  MAX_MD_FILES,
+  MAX_SALESFORCE_FILES,
   MAX_EMAIL_FILES,
   MAX_IMAGE_FILES,
-  MAX_TEXT_FILE_SIZE_MB,
+  MAX_SALESFORCE_FILE_SIZE_MB,
+  MAX_EMAIL_FILE_SIZE_MB,
   MAX_IMAGE_FILE_SIZE_MB,
-  MAX_TEXT_FILE_SIZE_BYTES,
+  MAX_SALESFORCE_FILE_SIZE_BYTES,
+  MAX_EMAIL_FILE_SIZE_BYTES,
   MAX_IMAGE_FILE_SIZE_BYTES,
-  MAX_CSV_FILE_SIZE_MB,
-  MAX_CSV_FILE_SIZE_BYTES,
-  isMdFile,
+  isSalesforceFile,
   isEmailFile,
   isImageFile
 } from '../utils/validation';
@@ -39,7 +39,7 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const hasSalesforceFile = useMemo(() => files.some(isMdFile), [files]);
+  const hasSalesforceFile = useMemo(() => files.some(isSalesforceFile), [files]);
   const hasEmailFile = useMemo(() => files.some(isEmailFile), [files]);
   const hasImageFiles = useMemo(() => files.some(isImageFile), [files]);
 
@@ -66,8 +66,8 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
     const prospectiveFiles = [...files, ...newFiles];
 
     // Check counts
-    if (prospectiveFiles.filter(isMdFile).length > MAX_MD_FILES) {
-        errors.push(`• You can only upload ${MAX_MD_FILES} Salesforce (.md) file.`);
+    if (prospectiveFiles.filter(isSalesforceFile).length > MAX_SALESFORCE_FILES) {
+        errors.push(`• You can only upload ${MAX_SALESFORCE_FILES} Salesforce file (.md or image).`);
     }
     if (prospectiveFiles.filter(isEmailFile).length > MAX_EMAIL_FILES) {
         errors.push(`• You can only upload ${MAX_EMAIL_FILES} email thread file.`);
@@ -82,12 +82,13 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
             // This check can be skipped if we allow replacing, but for now, we prevent duplicates
             continue; // Don't add an error for a file that's already there from a previous batch
         }
-        if (isMdFile(file) || isEmailFile(file)) {
-            const isCsv = file.name.toLowerCase().endsWith('.csv');
-            const limit = isCsv ? MAX_CSV_FILE_SIZE_BYTES : MAX_TEXT_FILE_SIZE_BYTES;
-            const limitMb = isCsv ? MAX_CSV_FILE_SIZE_MB : MAX_TEXT_FILE_SIZE_MB;
-            if (file.size > limit) {
-                errors.push(`• File "${file.name}" is too large (max ${limitMb}MB).`);
+        if (isSalesforceFile(file)) {
+            if (file.size > MAX_SALESFORCE_FILE_SIZE_BYTES) {
+                errors.push(`• File "${file.name}" is too large (max ${MAX_SALESFORCE_FILE_SIZE_MB}MB).`);
+            }
+        } else if (isEmailFile(file)) {
+            if (file.size > MAX_EMAIL_FILE_SIZE_BYTES) {
+                errors.push(`• File "${file.name}" is too large (max ${MAX_EMAIL_FILE_SIZE_MB}MB).`);
             }
         } else if (isImageFile(file)) {
             if (file.size > MAX_IMAGE_FILE_SIZE_BYTES) {
@@ -148,11 +149,11 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
                  <ul className="mt-4 space-y-2 text-left text-sm font-medium">
                      <li className={`flex items-center transition-colors ${hasSalesforceFile ? 'text-accent-green' : 'text-neutral-500'}`}>
                          {hasSalesforceFile ? <CheckIcon /> : <PendingIcon />}
-                         Salesforce Data (.md)
+                         Salesforce Data (.md, image)
                      </li>
                      <li className={`flex items-center transition-colors ${hasEmailFile ? 'text-accent-green' : 'text-neutral-500'}`}>
                          {hasEmailFile ? <CheckIcon /> : <PendingIcon />}
-                         Email Thread (.txt, .eml, .csv)
+                         Email Thread (doc, image, etc.)
                      </li>
                      <li className={`flex items-center transition-colors ${hasImageFiles ? 'text-accent-green' : 'text-neutral-500'}`}>
                          {hasImageFiles ? <CheckIcon /> : <PendingIcon />}
@@ -221,7 +222,7 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
                     className="hidden"
                     onChange={(e) => handleFileChange(e.target.files)}
                     // Added accept attribute for better user experience
-                    accept=".md,.txt,.eml,.csv,image/*"
+                    accept=".md,.pdf,.txt,.csv,.xls,.html,.doc,.ppt,.json,.eml,image/*,.tiff"
                 />
                  <button onClick={() => fileInputRef.current?.click()} className="p-2 text-neutral-500 hover:text-primary-blue" aria-label="Attach files">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>

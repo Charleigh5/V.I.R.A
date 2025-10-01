@@ -8,7 +8,15 @@ import { GeminiApiError, analyzeProjectFiles } from './services/geminiService';
 import { resizeAndCompressImage } from './utils/imageUtils';
 import CreateFromTemplateModal from './components/CreateFromTemplateModal';
 import { projectTemplates, ProjectTemplate } from './services/templates';
-import { MAX_TEXT_FILE_SIZE_BYTES, MAX_TEXT_FILE_SIZE_MB, MAX_CSV_FILE_SIZE_BYTES, MAX_CSV_FILE_SIZE_MB } from './utils/validation';
+import { 
+    isSalesforceFile, 
+    isEmailFile,
+    isImageFile,
+    MAX_SALESFORCE_FILE_SIZE_BYTES, 
+    MAX_SALESFORCE_FILE_SIZE_MB, 
+    MAX_EMAIL_FILE_SIZE_BYTES, 
+    MAX_EMAIL_FILE_SIZE_MB
+} from './utils/validation';
 
 
 interface ChatMessage {
@@ -164,20 +172,22 @@ const App: React.FC = () => {
       addMessageToHistory({ sender: 'user', text: text || `Uploading ${files.length} file(s)...`});
       setIsProcessing(true);
 
-      const mdFile = files.find(f => f.name.endsWith('.md'));
-      const textEmailFile = files.find(f => /\.(txt|eml|csv)$/i.test(f.name));
+      // Prioritize .md for salesforce, then look for other valid types.
+      const salesforceFile = files.find(f => f.name.endsWith('.md')) || files.find(isSalesforceFile);
+      // Find an email file that isn't the one we picked for Salesforce.
+      const emailFile = files.find(f => f !== salesforceFile && isEmailFile(f));
 
-      if (!mdFile || !textEmailFile) {
-          addMessageToHistory({ sender: 'system', text: "Project creation requires one Salesforce .md file and one email thread file (.txt, .eml, or .csv). Please provide both."});
+      if (!salesforceFile || !emailFile) {
+          addMessageToHistory({ sender: 'system', text: "Project creation requires one Salesforce file (.md or image) and one supported email/conversation file. Please provide both."});
           setIsProcessing(false);
           return;
       }
       
-      const textFiles = files.filter(f => /\.(md|txt|eml|csv)$/i.test(f.name));
-      for (const file of textFiles) {
-          const isCsv = file.name.toLowerCase().endsWith('.csv');
-          const sizeLimit = isCsv ? MAX_CSV_FILE_SIZE_BYTES : MAX_TEXT_FILE_SIZE_BYTES;
-          const sizeLimitMb = isCsv ? MAX_CSV_FILE_SIZE_MB : MAX_TEXT_FILE_SIZE_MB;
+      const sourceContentFiles = [salesforceFile, emailFile];
+      for (const file of sourceContentFiles) {
+          const isSf = file === salesforceFile;
+          const sizeLimit = isSf ? MAX_SALESFORCE_FILE_SIZE_BYTES : MAX_EMAIL_FILE_SIZE_BYTES;
+          const sizeLimitMb = isSf ? MAX_SALESFORCE_FILE_SIZE_MB : MAX_EMAIL_FILE_SIZE_MB;
           if (file.size > sizeLimit) {
               addMessageToHistory({ sender: 'system', text: `File Processing Error: File "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). The limit for this file type is ${sizeLimitMb}MB.` });
               setIsProcessing(false);
@@ -187,32 +197,50 @@ const App: React.FC = () => {
 
       try {
           addMessageToHistory({ sender: 'system', text: "Reading and processing files..." });
-          const salesforceContent = await fileReader(mdFile);
-          let emailContent = await fileReader(textEmailFile);
 
-          if (textEmailFile.name.endsWith('.csv')) {
-              addMessageToHistory({ sender: 'system', text: `Parsing large CSV file "${textEmailFile.name}". The interface may be unresponsive for a moment...` });
-              // Allow the message to render before blocking the main thread with a large parse.
-              await new Promise(resolve => setTimeout(resolve, 50));
-              emailContent = parseAndFormatCsv(emailContent);
-          }
+          const otherImages = files.filter(f => f !== salesforceFile && f !== emailFile && isImageFile(f));
+          
+          const allImagesToProcess = otherImages;
+          if (isImageFile(salesforceFile)) allImagesToProcess.push(salesforceFile);
+          if (isImageFile(emailFile)) allImagesToProcess.push(emailFile);
 
-          const allImages = files.filter(f => f.type.startsWith('image/'));
           const processedImages: File[] = [];
-          for (const imageFile of allImages) {
+          for (const imageFile of allImagesToProcess) {
               const processedImage = await resizeAndCompressImage(imageFile);
               processedImages.push(processedImage);
           }
 
           addMessageToHistory({ sender: 'system', text: "Sending data for AI analysis. This may take a moment..." });
-          const synthesizedData = await analyzeProjectFiles(salesforceContent, emailContent, processedImages);
+          const synthesizedData = await analyzeProjectFiles(salesforceFile, emailFile, otherImages);
           
           const sourceFiles = {
-              salesforceFileNames: [mdFile.name],
-              emailFileNames: [textEmailFile.name, ...allImages.map(f => f.name)],
+              salesforceFileNames: [salesforceFile.name],
+              emailFileNames: [emailFile.name],
           };
+          
+          const isEmailTextBased = /\.(txt|eml|csv|md|html|json)$/i.test(emailFile.name);
+          let rawEmailContentForUi = `Content from file "${emailFile.name}" was used for analysis. Preview is not available for this file type.`;
+          let rawSalesforceContentForUi = `Content from file "${salesforceFile.name}" was used for analysis. Preview is not available for this file type.`;
 
-          handleAnalysisComplete(synthesizedData, processedImages, sourceFiles, salesforceContent, emailContent);
+          if (salesforceFile.name.endsWith('.md')) {
+              rawSalesforceContentForUi = await fileReader(salesforceFile);
+          }
+
+          if (isEmailTextBased) {
+              try {
+                  let emailText = await fileReader(emailFile);
+                  if (emailFile.name.toLowerCase().endsWith('.csv')) {
+                      rawEmailContentForUi = parseAndFormatCsv(emailText);
+                  } else {
+                      rawEmailContentForUi = emailText;
+                  }
+              } catch (readError) {
+                  console.error("Failed to read text-based email file for UI preview:", readError);
+                  rawEmailContentForUi = `Could not read content from file "${emailFile.name}" for preview.`;
+              }
+          }
+
+          handleAnalysisComplete(synthesizedData, processedImages, sourceFiles, rawSalesforceContentForUi, rawEmailContentForUi);
 
       } catch (err) {
           let errorText = "An unexpected error occurred.";
@@ -319,7 +347,7 @@ const App: React.FC = () => {
                     onSelectProject={handleSelectProject}
                     chatHistory={chatHistory}
                     isProcessing={isProcessing}
-                    onFileDrop={handleCommandSubmit}
+                    onCreateProject={handleCommandSubmit}
                     onOpenTemplateModal={() => setTemplateModalOpen(true)}
                 />
             )}

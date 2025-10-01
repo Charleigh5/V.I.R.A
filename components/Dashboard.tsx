@@ -3,14 +3,16 @@ import { Project } from '../types';
 import ProjectCard from './ProjectCard';
 import ChatHistory, { ChatMessage } from './ChatHistory';
 import Button from './ui/Button';
+import FileImporter from './ui/FileImporter';
 import {
-  MAX_TEXT_FILE_SIZE_MB,
+  MAX_SALESFORCE_FILE_SIZE_MB,
+  MAX_EMAIL_FILE_SIZE_MB,
   MAX_IMAGE_FILE_SIZE_MB,
-  MAX_TEXT_FILE_SIZE_BYTES,
+  MAX_SALESFORCE_FILE_SIZE_BYTES,
+  MAX_EMAIL_FILE_SIZE_BYTES,
   MAX_IMAGE_FILE_SIZE_BYTES,
-  MAX_CSV_FILE_SIZE_MB,
-  MAX_CSV_FILE_SIZE_BYTES,
-  isMdFile,
+  MAX_IMAGE_FILES,
+  isSalesforceFile,
   isEmailFile,
   isImageFile
 } from '../utils/validation';
@@ -20,105 +22,166 @@ interface DashboardProps {
   onSelectProject: (projectId: string) => void;
   chatHistory: ChatMessage[];
   isProcessing: boolean;
-  onFileDrop: (text: string, files: File[]) => void;
+  onCreateProject: (text: string, files: File[]) => void;
   onOpenTemplateModal: () => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHistory, isProcessing, onFileDrop, onOpenTemplateModal }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const [dropError, setDropError] = useState<string | null>(null);
+const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHistory, isProcessing, onCreateProject, onOpenTemplateModal }) => {
+  const [salesforceFile, setSalesforceFile] = useState<File | null>(null);
+  const [emailFile, setEmailFile] = useState<File | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const handleDragEvent = (e: React.DragEvent<HTMLDivElement>, type: 'enter' | 'leave' | 'over') => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (isProcessing) return;
-      if (type === 'enter' || type === 'over') {
-        // Clear previous errors when a new drag starts
-        if (dropError) setDropError(null);
-        setIsDragging(true);
-      }
-      else if (type === 'leave') setIsDragging(false);
+  const clearError = () => {
+      if (uploadError) setUploadError(null);
+  }
+
+  const handleFileSelect = (
+    selectedFiles: File[],
+    setFile: (file: File | null) => void,
+    validator: (file: File) => boolean,
+    maxSize: number,
+    maxSizeMb: number,
+    fileTypeName: string
+  ) => {
+    clearError();
+    if (selectedFiles.length === 0) return;
+    const file = selectedFiles[0];
+    
+    if (!validator(file)) {
+      setUploadError(`Invalid file type for ${fileTypeName}. Please upload a supported file.`);
+      return;
+    }
+
+    if (file.size > maxSize) {
+        setUploadError(`File "${file.name}" is too large. Max size is ${maxSizeMb}MB.`);
+        return;
+    }
+    
+    setFile(file);
   };
+  
+  const handleImageSelect = (selectedFiles: File[]) => {
+      clearError();
+      const newFiles = selectedFiles;
+      const errors: string[] = [];
+      const filesToAdd: File[] = [];
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-      handleDragEvent(e, 'leave');
-      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-          const droppedFiles = Array.from(e.dataTransfer.files);
-          const errors: string[] = [];
-
-          const mdFiles = droppedFiles.filter(isMdFile);
-          const emailFiles = droppedFiles.filter(isEmailFile);
-          
-          if (mdFiles.length !== 1 || emailFiles.length !== 1) {
-              errors.push("Please drop exactly one Salesforce (.md) file and one email thread (.txt, .eml, or .csv) file together.");
-          }
-
-          for (const file of droppedFiles) {
-              if (isMdFile(file) || isEmailFile(file)) {
-                  const isCsv = file.name.toLowerCase().endsWith('.csv');
-                  const sizeLimit = isCsv ? MAX_CSV_FILE_SIZE_BYTES : MAX_TEXT_FILE_SIZE_BYTES;
-                  const sizeLimitMb = isCsv ? MAX_CSV_FILE_SIZE_MB : MAX_TEXT_FILE_SIZE_MB;
-                  if (file.size > sizeLimit) {
-                      errors.push(`• File "${file.name}" is too large (max ${sizeLimitMb}MB).`);
-                  }
-              } else if (isImageFile(file)) {
-                  if (file.size > MAX_IMAGE_FILE_SIZE_BYTES) {
-                      errors.push(`• Image "${file.name}" is too large (max ${MAX_IMAGE_FILE_SIZE_MB}MB).`);
-                  }
-              } else {
-                   errors.push(`• Unsupported file type: "${file.name}".`);
+      if (imageFiles.length + newFiles.length > MAX_IMAGE_FILES) {
+          errors.push(`You can upload a maximum of ${MAX_IMAGE_FILES} images.`);
+      } else {
+          for (const file of newFiles) {
+              if (!isImageFile(file)) {
+                  errors.push(`"${file.name}" is not a valid image file.`);
+                  continue;
               }
+              if (file.size > MAX_IMAGE_FILE_SIZE_BYTES) {
+                  errors.push(`Image "${file.name}" is too large (max ${MAX_IMAGE_FILE_SIZE_MB}MB).`);
+                  continue;
+              }
+              if (imageFiles.some(f => f.name === file.name)) {
+                  // Skip duplicates without erroring
+                  continue;
+              }
+              filesToAdd.push(file);
           }
-          
-          if (errors.length > 0) {
-              setDropError(`Upload Error:\n${errors.join('\n')}`);
-              setTimeout(() => setDropError(null), 7000); // Error visible for 7 seconds
-              return;
-          }
-
-          onFileDrop("Dropped files to create a project", droppedFiles);
       }
-  };
 
+      if (errors.length > 0) {
+          setUploadError(errors.join('\n'));
+          return;
+      }
+      setImageFiles(prev => [...prev, ...filesToAdd]);
+  };
+  
+  const handleRemoveImage = (fileName: string) => {
+      setImageFiles(prev => prev.filter(f => f.name !== fileName));
+  };
+  
+  const handleCreateProject = () => {
+      if (!salesforceFile || !emailFile) {
+          setUploadError("Both a Salesforce file and an Email file are required to create a project.");
+          return;
+      }
+      
+      const allFiles = [salesforceFile, emailFile, ...imageFiles];
+      onCreateProject("Create project from uploaded files", allFiles);
+  };
 
   return (
-    <div 
-        className="flex-grow flex flex-col p-8 pb-32 relative"
-        onDragEnter={(e) => handleDragEvent(e, 'enter')}
-        onDragLeave={(e) => handleDragEvent(e, 'leave')}
-        onDragOver={(e) => handleDragEvent(e, 'over')}
-        onDrop={handleDrop}
-    >
-       {dropError && (
-          <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-red-100 border border-accent-red text-accent-red px-4 py-3 rounded-lg shadow-lg z-30 animate-pulse">
-            <p className="text-sm whitespace-pre-wrap">{dropError}</p>
-          </div>
-        )}
-       {isDragging && !dropError && (
-        <div className="absolute inset-0 bg-primary-blue bg-opacity-20 border-4 border-dashed border-primary-blue rounded-2xl flex items-center justify-center pointer-events-none z-20 m-8">
-          <p className="text-primary-blue font-bold text-2xl">Drop files to create a project</p>
+    <div className="flex-grow flex flex-col p-8 pb-32">
+        <div className="flex justify-between items-center mb-6">
+            <h1 className="text-3xl font-bold text-neutral-900">Project Dashboard</h1>
+            <Button onClick={onOpenTemplateModal}>Create from Template</Button>
         </div>
-      )}
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-neutral-900">Project Dashboard</h1>
-        <Button onClick={onOpenTemplateModal}>Create from Template</Button>
-      </div>
-      
-      {projects.length > 0 && (
-         <div className="mb-8">
-            <h2 className="text-xl font-semibold text-neutral-800 mb-4">Available Projects</h2>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {projects.map((project) => (
-                <ProjectCard key={project.id} project={project} onSelect={onSelectProject} />
-              ))}
+        
+        {/* New Project Creation UI */}
+        <div className="bg-white rounded-lg shadow-md p-6 border border-neutral-200 mb-8">
+            <h2 className="text-xl font-semibold text-neutral-800 mb-1">Create New Project</h2>
+            <p className="text-sm text-neutral-500 mb-6">Upload the required source files to begin the AI analysis.</p>
+
+            {uploadError && (
+                <div className="bg-red-50 border border-accent-red text-accent-red text-sm px-4 py-3 rounded-lg mb-4 whitespace-pre-wrap">
+                    {uploadError}
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <FileImporter
+                    title="Salesforce Data"
+                    description="Upload .md, .jpg, .png, etc."
+                    acceptedFileTypes=".md,image/*,.tiff"
+                    files={salesforceFile ? [salesforceFile] : []}
+                    onFilesSelected={(files) => handleFileSelect(files, setSalesforceFile, isSalesforceFile, MAX_SALESFORCE_FILE_SIZE_BYTES, MAX_SALESFORCE_FILE_SIZE_MB, 'Salesforce')}
+                    onFileRemove={() => setSalesforceFile(null)}
+                />
+                 <FileImporter
+                    title="Email Conversation"
+                    description="Upload docs, images, etc."
+                    acceptedFileTypes=".pdf,.txt,.md,.csv,.xls,.html,.doc,.ppt,.json,.eml,image/*,.tiff"
+                    files={emailFile ? [emailFile] : []}
+                    onFilesSelected={(files) => handleFileSelect(files, setEmailFile, isEmailFile, MAX_EMAIL_FILE_SIZE_BYTES, MAX_EMAIL_FILE_SIZE_MB, 'Email')}
+                    onFileRemove={() => setEmailFile(null)}
+                />
+            </div>
+
+            <FileImporter
+                title="Supporting Images (Optional)"
+                description={`Drag & drop or click to upload (up to ${MAX_IMAGE_FILES} images)`}
+                acceptedFileTypes="image/*"
+                files={imageFiles}
+                onFilesSelected={handleImageSelect}
+                onFileRemove={handleRemoveImage}
+                isMultiple
+                iconType="image"
+            />
+            
+            <div className="mt-6 text-right">
+                <Button
+                    onClick={handleCreateProject}
+                    isLoading={isProcessing}
+                    disabled={!salesforceFile || !emailFile || isProcessing}
+                >
+                    Create Project
+                </Button>
             </div>
         </div>
-      )}
 
-      <div className="flex-grow bg-white rounded-lg shadow-md p-4 flex flex-col">
-         <h2 className="text-xl font-semibold text-neutral-800 mb-4 border-b pb-2">Conversation</h2>
-        <ChatHistory messages={chatHistory} />
-      </div>
+        {projects.length > 0 && (
+            <div className="mb-8">
+                <h2 className="text-xl font-semibold text-neutral-800 mb-4">Available Projects</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {projects.map((project) => (
+                        <ProjectCard key={project.id} project={project} onSelect={onSelectProject} />
+                    ))}
+                </div>
+            </div>
+        )}
+
+        <div className="flex-grow bg-white rounded-lg shadow-md p-4 flex flex-col">
+            <h2 className="text-xl font-semibold text-neutral-800 mb-4 border-b pb-2">Conversation</h2>
+            <ChatHistory messages={chatHistory} />
+        </div>
     </div>
   );
 };

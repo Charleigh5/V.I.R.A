@@ -71,13 +71,29 @@ const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) =>
         />
         <div className="ml-4 flex-1">
           <div className="flex justify-between items-start">
-            <div>
+            <div className="pr-4">
                 <p className={`font-semibold text-neutral-800 ${isCompleted ? 'line-through' : ''}`}>{item.subject}</p>
                 <p className="text-sm text-neutral-600 mt-1">{item.description}</p>
             </div>
-            <Button variant="tertiary" className="px-2 py-1 text-xs -mr-2 flex-shrink-0" onClick={() => onEdit(item)}>
-              Edit
-            </Button>
+            <div className="flex items-center space-x-2 flex-shrink-0">
+                {sourceNode && (
+                    <div className="relative group text-primary-blue cursor-help">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                           <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                           <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h1a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+                        </svg>
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-neutral-800 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                           <p className="font-bold border-b border-neutral-600 pb-1 mb-1">Source Conversation:</p>
+                           <p className="italic">"{sourceNode.summary}"</p>
+                           <p className="text-right text-neutral-400 mt-1">- {sourceNode.speaker_name}</p>
+                           <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-neutral-800"></div>
+                       </div>
+                    </div>
+                )}
+                <Button variant="tertiary" className="px-2 py-1 text-xs" onClick={() => onEdit(item)}>
+                  Edit
+                </Button>
+            </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 items-center text-xs text-neutral-500">
             <Badge color={getStatusBadgeColor(item.status)}>{item.status}</Badge>
@@ -91,21 +107,6 @@ const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) =>
             <span>Assigned: {item.assigned_to_name}</span>
             <span>Type: {item.task_types}</span>
             {item.hours_remaining !== undefined && <span>{item.hours_remaining} hrs left</span>}
-            {sourceNode && (
-               <div className="relative group inline-flex items-center cursor-pointer">
-                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-primary-blue" viewBox="0 0 20 20" fill="currentColor">
-                       <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
-                       <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h1a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
-                   </svg>
-                   <span className="text-primary-blue">Linked</span>
-                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-neutral-800 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                       <p className="font-bold border-b border-neutral-600 pb-1 mb-1">Source Conversation:</p>
-                       <p className="italic">"{sourceNode.summary}"</p>
-                       <p className="text-right text-neutral-400 mt-1">- {sourceNode.speaker_name}</p>
-                       <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-neutral-800"></div>
-                   </div>
-               </div>
-           )}
           </div>
         </div>
       </div>
