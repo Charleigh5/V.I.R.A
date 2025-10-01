@@ -66,6 +66,7 @@ export interface BoundingBox {
 // Represents a single analyzed detail with its text and location
 export interface AnalyzedDetail {
   text: string;
+  correctedText?: string;
   boundingBox: BoundingBox;
 }
 

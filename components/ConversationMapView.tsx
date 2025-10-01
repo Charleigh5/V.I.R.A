@@ -73,8 +73,14 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allAct
             .on('click', () => setSelectedNode(null)); // Deselect on background click
 
         const graphNodes: GraphNode[] = nodes.map(n => ({ id: n.node_id, data: n }));
+        
+        // Create a set of all valid node IDs for quick lookup to prevent D3 errors.
+        const nodeIds = new Set(graphNodes.map(n => n.id));
+
         const graphLinks: GraphLink[] = nodes
-            .filter(n => n.parent_node_id !== null)
+            // Only create links where the parent_node_id is not null and exists in our set of nodes.
+            // This prevents errors if the AI returns a parent_node_id of 0 or some other non-existent ID for the root node.
+            .filter(n => n.parent_node_id !== null && nodeIds.has(n.parent_node_id))
             // Cast to `any` because we are initializing with numeric IDs,
             // but D3 will populate `source` and `target` with full GraphNode objects.
             .map(n => ({ source: n.parent_node_id!, target: n.node_id } as any));
