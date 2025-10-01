@@ -1,6 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { SynthesizedProjectData } from '../types';
 
+export class GeminiApiError extends Error {
+  public readonly isRetryable: boolean;
+  constructor(message: string, isRetryable: boolean = false) {
+    super(message);
+    this.name = 'GeminiApiError';
+    this.isRetryable = isRetryable;
+  }
+}
+
 const MASTER_PROMPT_TEMPLATE = `
 # SYSTEM PROMPT
 
@@ -177,14 +186,14 @@ const summarizeTextIfNeeded = async (text: string, contentType: string, charLimi
 
     console.warn(`${contentType} content is too long (${text.length} chars). Summarizing...`);
     
-    // Safety margin for prompt text and model token variance. 1M tokens ~ 4M chars.
-    const API_CALL_CHAR_LIMIT = 3800000;
+    // Using a more conservative character limit to avoid potential 500 internal server errors or timeouts with very large single prompts.
+    const API_CALL_CHAR_LIMIT = 950000;
 
     try {
         let summary;
         if (text.length <= API_CALL_CHAR_LIMIT) {
             // Text is long but fits in a single API call
-            const prompt = `Please summarize the following document, retaining all critical information such as names, dates, financial figures, action items, and key decisions. The summary needs to be comprehensive yet concise as it will be used by another AI for analysis. Here is the document:\n\n---\n\n${text}`;
+            const prompt = `Please summarize the following ${contentType} document, retaining all critical information such as names, dates, financial figures, action items, and key decisions. The summary needs to be comprehensive yet concise as it will be used by another AI for analysis. Here is the document:\n\n---\n\n${text}`;
             summary = await summarizeSingleChunk(prompt);
         } else {
             // Text is too long for one call, so we chunk it (MapReduce)
@@ -197,7 +206,7 @@ const summarizeTextIfNeeded = async (text: string, contentType: string, charLimi
             console.log(`Split content into ${chunks.length} chunks.`);
 
             const chunkSummaryPromises = chunks.map((chunk, index) => {
-                const prompt = `This is part ${index + 1} of ${chunks.length} of a larger document. Please summarize the following text, retaining all critical information such as names, dates, financial figures, action items, and key decisions. The summary needs to be comprehensive yet concise. Here is the text chunk:\n\n---\n\n${chunk}`;
+                const prompt = `This is part ${index + 1} of ${chunks.length} of a larger ${contentType} document. Please summarize the following text, retaining all critical information such as names, dates, financial figures, action items, and key decisions. The summary needs to be comprehensive yet concise. Here is the text chunk:\n\n---\n\n${chunk}`;
                 return summarizeSingleChunk(prompt);
             });
 
@@ -212,7 +221,7 @@ const summarizeTextIfNeeded = async (text: string, contentType: string, charLimi
                 summary = combinedSummaries;
             } else {
                 // Final summarization pass to create a cohesive narrative from the chunk summaries
-                const finalSummaryPrompt = `The following are separate summaries from a very long document. Please synthesize them into a single, cohesive final summary, retaining all critical details like names, dates, and action items.\n\n---\n\n${combinedSummaries}`;
+                const finalSummaryPrompt = `The following are separate summaries from a very long ${contentType} document. Please synthesize them into a single, cohesive final summary, retaining all critical details like names, dates, and action items.\n\n---\n\n${combinedSummaries}`;
                 summary = await summarizeSingleChunk(finalSummaryPrompt);
             }
         }
@@ -223,7 +232,7 @@ const summarizeTextIfNeeded = async (text: string, contentType: string, charLimi
     } catch (e) {
         console.error(`Failed to summarize ${contentType}. Falling back to truncation.`, e);
         const truncatedText = text.substring(0, charLimit);
-        return `${truncatedText}\n\n...[CONTENT TRUNCATED DUE TO EXCESSIVE LENGTH]...`;
+        return `${truncatedText}\n\n...[CONTENT TRUNCATED DUE TO EXCESSIVE LENGTH & SUMMARIZATION ERROR]...`;
     }
 };
 
@@ -297,6 +306,14 @@ ${processedEmailContent}
     return data;
   } catch (error) {
     console.error("Error analyzing project files with Gemini:", error);
-    throw new Error("Failed to synthesize project data. Please check the console for details.");
+    
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    // Heuristic to determine if the error is a temporary server issue or a problem with the user's input.
+    const isRetryable = message.includes('internal') || message.includes('server') || message.includes('500') || message.includes('network');
+
+    throw new GeminiApiError(
+      `The AI service failed to process the request. ${isRetryable ? 'This might be a temporary issue.' : 'Please check if your file content is valid or too large.'}`,
+      isRetryable
+    );
   }
 };

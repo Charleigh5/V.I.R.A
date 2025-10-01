@@ -131,6 +131,8 @@ export interface Project {
       salesforceFileNames: string[];
       emailFileNames: string[];
   };
+  rawSalesforceContent?: string;
+  rawEmailContent?: string;
   data?: Omit<SynthesizedProjectData, 'image_reports'>;
   images?: ProjectImage[];
 }

@@ -4,16 +4,19 @@ import ActionItemsView from './ActionItemsView';
 import ConversationMapView from './ConversationMapView';
 import ImageView from './ImageView';
 import CreateActionItemModal from './CreateActionItemModal';
+import SalesforceDataView from './SalesforceDataView';
+import EmailTranscriptView from './EmailTranscriptView';
+import CollapsibleSection from './ui/CollapsibleSection';
 
 interface ProjectWorkspaceProps {
   project: Project;
   onBack: () => void;
 }
 
-type View = 'actions' | 'map' | 'images';
+type View = 'sources' | 'actions' | 'map' | 'images';
 
 const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) => {
-  const [activeView, setActiveView] = useState<View>('actions');
+  const [activeView, setActiveView] = useState<View>('sources');
   const [searchQuery, setSearchQuery] = useState('');
   
   // Centralized state for action items
@@ -103,12 +106,45 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) 
           </h2>
           <p className="text-xs text-neutral-500 mb-6">Opp. #{project_details.opportunity_number}</p>
           <nav className="space-y-2">
+            <NavItem view="sources" label="Data Sources" />
             <NavItem view="actions" label="Action Items" />
             <NavItem view="map" label="Conversation Map" />
             <NavItem view="images" label="Images & Reports" disabled={!project.images || project.images.length === 0} />
           </nav>
         </aside>
         <main className="flex-1 overflow-y-auto">
+           {activeView === 'sources' && (
+            <div className="p-6 h-full flex flex-col gap-6">
+              {project.rawEmailContent || project.rawSalesforceContent ? (
+                <>
+                  {project.rawEmailContent && (
+                     <CollapsibleSection title="Source (Email)" defaultOpen className="flex-[3] flex flex-col min-h-0">
+                        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
+                          <EmailTranscriptView rawContent={project.rawEmailContent} />
+                          <div className="flex flex-col min-h-0">
+                            <h3 className="text-lg font-semibold text-neutral-700 mb-2 flex-shrink-0">Conversation Flow Chart</h3>
+                            <div className="flex-1 bg-white rounded-lg shadow-md overflow-hidden relative">
+                              <ConversationMapView nodes={conversation_nodes} allActionItems={actionItems} onCreateActionItem={handleOpenCreateActionItemModal} onLinkActionItem={handleLinkActionItem} />
+                            </div>
+                          </div>
+                        </div>
+                     </CollapsibleSection>
+                  )}
+                  {project.rawSalesforceContent && (
+                    <CollapsibleSection title="Source (Salesforce)" defaultOpen className="flex-[2] flex flex-col min-h-0">
+                      <SalesforceDataView markdownContent={project.rawSalesforceContent} />
+                    </CollapsibleSection>
+                  )}
+                </>
+              ) : (
+                <div className="flex-grow flex items-center justify-center">
+                    <div className="text-center p-10 bg-white rounded-lg shadow-sm">
+                        <p className="text-neutral-500">No raw source file data is available for this project.</p>
+                    </div>
+                </div>
+              )}
+            </div>
+          )}
           {activeView === 'actions' && (
             <ActionItemsView 
               actionItems={actionItems}

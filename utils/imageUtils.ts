@@ -1,4 +1,5 @@
 
+
 export const resizeAndCompressImage = (
   file: File,
   maxDimension: number = 1024,
