@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ActionItem, TaskStatus, TaskPriority } from '../types';
 import Badge from './ui/Badge';
 import Button from './ui/Button';
@@ -104,6 +104,10 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems }) => {
   const [items, setItems] = useState<ActionItem[]>(actionItems);
   const [editingItem, setEditingItem] = useState<ActionItem | null>(null);
 
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [assigneeFilter, setAssigneeFilter] = useState('');
+
   useEffect(() => {
     setItems(actionItems);
   }, [actionItems]);
@@ -121,11 +125,81 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems }) => {
     setEditingItem(null);
   };
 
+  const filteredItems = useMemo(() => {
+    return items.filter(item => {
+      const statusMatch = statusFilter === 'all' || item.status === statusFilter;
+      const priorityMatch = priorityFilter === 'all' || item.priority === priorityFilter;
+      const assigneeMatch = assigneeFilter.trim() === '' || item.assigned_to_name.toLowerCase().includes(assigneeFilter.toLowerCase().trim());
+      return statusMatch && priorityMatch && assigneeMatch;
+    });
+  }, [items, statusFilter, priorityFilter, assigneeFilter]);
+
+  const handleClearFilters = () => {
+    setStatusFilter('all');
+    setPriorityFilter('all');
+    setAssigneeFilter('');
+  };
+
   return (
-    <div className="p-6 space-y-4">
-      {items.map((item) => (
-        <ActionItemCard key={item.id} item={item} onEdit={handleEditClick} />
-      ))}
+    <div className="p-6">
+      <div className="bg-white p-4 rounded-lg shadow-sm mb-6 border border-neutral-200">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div>
+            <label htmlFor="status-filter" className="block text-sm font-medium text-neutral-700">Status</label>
+            <select
+              id="status-filter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
+            >
+              <option value="all">All Statuses</option>
+              {Object.values(TaskStatus).map(status => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="priority-filter" className="block text-sm font-medium text-neutral-700">Priority</label>
+            <select
+              id="priority-filter"
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
+            >
+              <option value="all">All Priorities</option>
+              {Object.values(TaskPriority).map(priority => <option key={priority} value={priority}>{priority}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="assignee-filter" className="block text-sm font-medium text-neutral-700">Assignee</label>
+            <input
+              type="text"
+              id="assignee-filter"
+              placeholder="Filter by name..."
+              value={assigneeFilter}
+              onChange={(e) => setAssigneeFilter(e.target.value)}
+              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
+            />
+          </div>
+          
+          <Button variant="secondary" onClick={handleClearFilters}>
+            Clear Filters
+          </Button>
+
+        </div>
+      </div>
+      
+      <div className="space-y-4">
+        {filteredItems.length > 0 ? (
+          filteredItems.map((item) => (
+            <ActionItemCard key={item.id} item={item} onEdit={handleEditClick} />
+          ))
+        ) : (
+          <div className="text-center py-10 bg-white rounded-lg shadow-sm">
+            <p className="text-neutral-500">No action items match the current filters.</p>
+          </div>
+        )}
+      </div>
       {editingItem && (
         <EditActionItemModal
           isOpen={!!editingItem}

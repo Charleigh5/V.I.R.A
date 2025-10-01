@@ -49,6 +49,11 @@ export interface Attachment {
   upload_date: string;
 }
 
+export interface MentionedAttachment {
+  file_name: string;
+  context: string;
+}
+
 // Represents the bounding box of a detected item on an image
 export interface BoundingBox {
   x1: number;
@@ -103,6 +108,7 @@ export interface SynthesizedProjectData {
   conversation_summary: string;
   conversation_nodes: ConversationNode[];
   attachments: Attachment[];
+  mentioned_attachments: MentionedAttachment[];
   image_reports?: ImageAnalysisReport[];
 }
 

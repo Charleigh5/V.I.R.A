@@ -9,9 +9,10 @@ You are an expert project management analyst AI. Your task is to analyze the pro
 ## INSTRUCTIONS
 
 1.  **Analyze Text:** Parse the Salesforce data and email thread to identify project details, action items, conversation flow, and attachments. Correlate information between sources.
-2.  **Summarize Conversation:** Create a high-level summary of the entire email thread. This summary should capture the main topic, key decisions made, critical questions asked, and any unresolved issues.
-3.  **Analyze Images:** For each image, provide a summary, extract all text (OCR) with its bounding box, detect key objects with their bounding boxes, and identify any part numbers or people.
-4.  **Output:** Your entire output must be a single, valid JSON object conforming to the schema provided in the API configuration. Bounding box coordinates must be normalized (0.0 to 1.0).
+2.  **Extract Mentioned Attachments:** Scrutinize the email conversation for any explicit mentions of file attachments (e.g., "I've attached the 'final_report.pdf'"). For each mentioned file, list its name and provide a brief context about the mention (e.g., who mentioned it and why).
+3.  **Summarize Conversation:** Create a high-level summary of the entire email thread. This summary should capture the main topic, key decisions made, critical questions asked, and any unresolved issues.
+4.  **Analyze Images:** For each image, provide a summary, extract all text (OCR) with its bounding box, detect key objects with their bounding boxes, and identify any part numbers or people.
+5.  **Output:** Your entire output must be a single, valid JSON object conforming to the schema provided in the API configuration. Bounding box coordinates must be normalized (0.0 to 1.0).
 
 ---
 # INPUT DATA
@@ -103,6 +104,24 @@ const responseSchema = {
         required: ["file_name", "file_type", "file_size_mb", "upload_date"]
       }
     },
+    mentioned_attachments: {
+      type: Type.ARRAY,
+      description: "A list of file attachments explicitly mentioned by name in the email conversation.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          file_name: { 
+            type: Type.STRING,
+            description: "The full name of the mentioned file, including its extension."
+          },
+          context: { 
+            type: Type.STRING,
+            description: "A brief description of the context in which the file was mentioned (e.g., who mentioned it and in relation to what)."
+          }
+        },
+        required: ["file_name", "context"]
+      }
+    },
     image_reports: {
         type: Type.ARRAY,
         items: {
@@ -119,7 +138,7 @@ const responseSchema = {
         }
     }
   },
-  required: ["project_details", "action_items", "conversation_summary", "conversation_nodes", "attachments"]
+  required: ["project_details", "action_items", "conversation_summary", "conversation_nodes", "attachments", "mentioned_attachments"]
 };
 
 
@@ -227,6 +246,9 @@ ${processedEmailContent}
     }
     if (!data.attachments || !Array.isArray(data.attachments)) {
         data.attachments = [];
+    }
+    if (!data.mentioned_attachments || !Array.isArray(data.mentioned_attachments)) {
+        data.mentioned_attachments = [];
     }
      if (!data.image_reports || !Array.isArray(data.image_reports)) {
         data.image_reports = [];
