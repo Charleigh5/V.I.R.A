@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useMemo } from 'react';
 import Button from './ui/Button';
+import FileTypeIcon from './ui/FileTypeIcon';
 import {
   MAX_SALESFORCE_FILES,
   MAX_EMAIL_FILES,
@@ -197,8 +198,9 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
                         <div className="flex flex-wrap gap-2">
                             {files.map(file => (
                                 <div key={file.name} className="bg-blue-100 text-primary-blue text-xs font-medium px-2 py-1 rounded-full flex items-center">
-                                    <span>{file.name}</span>
-                                    <button onClick={() => removeFile(file.name)} className="ml-2 text-primary-blue hover:text-blue-700">
+                                    <FileTypeIcon fileName={file.name} className="h-4 w-4 mr-1.5" />
+                                    <span className="truncate max-w-xs">{file.name}</span>
+                                    <button onClick={() => removeFile(file.name)} className="ml-2 text-primary-blue hover:text-blue-700 flex-shrink-0">
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
                                     </button>
                                 </div>

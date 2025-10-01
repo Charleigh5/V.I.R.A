@@ -155,7 +155,6 @@ const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHi
                 onFilesSelected={handleImageSelect}
                 onFileRemove={handleRemoveImage}
                 isMultiple
-                iconType="image"
                 fileStatuses={fileStatuses}
             />
             

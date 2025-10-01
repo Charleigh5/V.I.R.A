@@ -1,15 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FileProcessingStatus } from '../../types';
+import FileTypeIcon from './FileTypeIcon';
 
-// Icons for different states/file types
+// Icons for different states
 const UploadIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-);
-const FileIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-primary-blue" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg>
-);
-const ImageIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-primary-blue" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" /></svg>
 );
 
 const StatusIcon: React.FC<{ status?: FileProcessingStatus, error?: string }> = ({ status, error }) => {
@@ -36,7 +31,6 @@ interface FileImporterProps {
   onFileRemove: (fileName: string) => void;
   isMultiple?: boolean;
   className?: string;
-  iconType?: 'file' | 'image';
   fileStatuses?: Record<string, { status: FileProcessingStatus, error?: string }>;
 }
 
@@ -49,7 +43,6 @@ const FileImporter: React.FC<FileImporterProps> = ({
   onFileRemove,
   isMultiple = false,
   className = '',
-  iconType = 'file',
   fileStatuses = {}
 }) => {
   const [isDragging, setIsDragging] = useState(false);
@@ -162,7 +155,7 @@ const FileImporter: React.FC<FileImporterProps> = ({
                                 <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center mr-2">
                                     <StatusIcon {...fileStatuses[file.name]} />
                                 </div>
-                                {iconType === 'file' ? <FileIcon/> : <ImageIcon />}
+                                <FileTypeIcon fileName={file.name} className="h-10 w-10 text-primary-blue flex-shrink-0" />
                                 <div className="ml-3 min-w-0">
                                     <p className="text-sm font-medium text-neutral-800 truncate" title={file.name}>{file.name}</p>
                                     <p className="text-xs text-neutral-500">{formatBytes(file.size)}</p>
