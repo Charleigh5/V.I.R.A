@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ActionItem, TaskStatus, TaskPriority } from '../types';
+import { ActionItem, TaskStatus, TaskPriority, ConversationNode } from '../types';
 import Badge from './ui/Badge';
 import Button from './ui/Button';
 import EditActionItemModal from './EditActionItemModal';
 
 interface ActionItemsViewProps {
   actionItems: ActionItem[];
+  onUpdateActionItem: (item: ActionItem) => void;
+  conversationNodes: ConversationNode[];
 }
 
 const getPriorityClass = (priority: TaskPriority) => {
@@ -34,8 +36,6 @@ const formatDate = (dateString: string): string => {
     return 'No date';
   }
   try {
-    // Appending 'T00:00:00' treats the date string as being in the local timezone,
-    // which prevents the date from being off by one day due to UTC conversion.
     const date = new Date(`${dateString}T00:00:00`);
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -44,12 +44,12 @@ const formatDate = (dateString: string): string => {
     });
   } catch (error) {
     console.error("Invalid date string:", dateString, error);
-    return dateString; // Fallback to the original string if it's invalid
+    return dateString;
   }
 };
 
 
-const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) => void; }> = ({ item, onEdit }) => {
+const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) => void; sourceNode?: ConversationNode; }> = ({ item, onEdit, sourceNode }) => {
   const [isCompleted, setIsCompleted] = useState(item.status === TaskStatus.DONE);
 
   useEffect(() => {
@@ -58,7 +58,6 @@ const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) =>
 
   const handleToggle = () => {
     setIsCompleted(!isCompleted);
-    // Here you would typically also update the state in the parent component/backend
   };
 
   return (
@@ -92,6 +91,21 @@ const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) =>
             <span>Assigned: {item.assigned_to_name}</span>
             <span>Type: {item.task_types}</span>
             {item.hours_remaining !== undefined && <span>{item.hours_remaining} hrs left</span>}
+            {sourceNode && (
+               <div className="relative group inline-flex items-center cursor-pointer">
+                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-primary-blue" viewBox="0 0 20 20" fill="currentColor">
+                       <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                       <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h1a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+                   </svg>
+                   <span className="text-primary-blue">Linked</span>
+                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-neutral-800 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                       <p className="font-bold border-b border-neutral-600 pb-1 mb-1">Source Conversation:</p>
+                       <p className="italic">"{sourceNode.summary}"</p>
+                       <p className="text-right text-neutral-400 mt-1">- {sourceNode.speaker_name}</p>
+                       <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-neutral-800"></div>
+                   </div>
+               </div>
+           )}
           </div>
         </div>
       </div>
@@ -100,17 +114,11 @@ const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) =>
 };
 
 
-const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems }) => {
-  const [items, setItems] = useState<ActionItem[]>(actionItems);
+const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdateActionItem, conversationNodes }) => {
   const [editingItem, setEditingItem] = useState<ActionItem | null>(null);
-
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('');
-
-  useEffect(() => {
-    setItems(actionItems);
-  }, [actionItems]);
 
   const handleEditClick = (item: ActionItem) => {
     setEditingItem(item);
@@ -121,18 +129,23 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems }) => {
   };
 
   const handleSaveChanges = (updatedItem: ActionItem) => {
-    setItems(currentItems => currentItems.map(i => (i.id === updatedItem.id ? updatedItem : i)));
+    onUpdateActionItem(updatedItem);
     setEditingItem(null);
   };
 
+  const conversationNodeMap = useMemo(() => 
+    new Map(conversationNodes.map(node => [node.node_id, node])), 
+    [conversationNodes]
+  );
+
   const filteredItems = useMemo(() => {
-    return items.filter(item => {
+    return actionItems.filter(item => {
       const statusMatch = statusFilter === 'all' || item.status === statusFilter;
       const priorityMatch = priorityFilter === 'all' || item.priority === priorityFilter;
       const assigneeMatch = assigneeFilter.trim() === '' || item.assigned_to_name.toLowerCase().includes(assigneeFilter.toLowerCase().trim());
       return statusMatch && priorityMatch && assigneeMatch;
     });
-  }, [items, statusFilter, priorityFilter, assigneeFilter]);
+  }, [actionItems, statusFilter, priorityFilter, assigneeFilter]);
 
   const handleClearFilters = () => {
     setStatusFilter('all');
@@ -192,7 +205,12 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems }) => {
       <div className="space-y-4">
         {filteredItems.length > 0 ? (
           filteredItems.map((item) => (
-            <ActionItemCard key={item.id} item={item} onEdit={handleEditClick} />
+            <ActionItemCard 
+              key={item.id} 
+              item={item} 
+              onEdit={handleEditClick} 
+              sourceNode={item.sourceConversationNodeId ? conversationNodeMap.get(item.sourceConversationNodeId) : undefined}
+            />
           ))
         ) : (
           <div className="text-center py-10 bg-white rounded-lg shadow-sm">

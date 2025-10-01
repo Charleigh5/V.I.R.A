@@ -31,6 +31,7 @@ export interface ActionItem {
   task_types: string;
   hours_remaining: number;
   total_hours?: number;
+  sourceConversationNodeId?: number;
 }
 
 export interface ConversationNode {

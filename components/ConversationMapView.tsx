@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { ConversationNode } from '../types';
+import { ConversationNode, ActionItem } from '../types';
 import ConversationNodeDetailModal from './ConversationNodeDetailModal';
 
 interface ConversationMapViewProps {
   nodes: ConversationNode[];
+  allActionItems: ActionItem[];
+  onCreateActionItem: (initialData: Partial<ActionItem>) => void;
+  onLinkActionItem: (actionItemId: string, nodeId: number) => void;
 }
 
 interface GraphNode extends d3.SimulationNodeDatum {
@@ -17,7 +20,7 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
     target: number;
 }
 
-const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes }) => {
+const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allActionItems, onCreateActionItem, onLinkActionItem }) => {
   const ref = useRef<SVGSVGElement>(null);
   const [selectedNode, setSelectedNode] = useState<ConversationNode | null>(null);
 
@@ -144,6 +147,9 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes }) => {
             <ConversationNodeDetailModal 
                 node={selectedNode}
                 onClose={() => setSelectedNode(null)}
+                allActionItems={allActionItems}
+                onCreateActionItem={onCreateActionItem}
+                onLinkActionItem={onLinkActionItem}
             />
         )}
     </>
