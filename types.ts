@@ -68,6 +68,7 @@ export interface AnalyzedDetail {
   text: string;
   correctedText?: string;
   boundingBox: BoundingBox;
+  confidence?: number;
 }
 
 // What the AI returns

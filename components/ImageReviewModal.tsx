@@ -5,10 +5,29 @@ import Checkbox from './ui/Checkbox';
 import { RawImageAnalysis, ProjectImage, ImportedImageDetails, AnalyzedDetail } from '../types';
 
 const EditIcon: React.FC<{ onClick: () => void }> = ({ onClick }) => (
-    <svg onClick={onClick} xmlns="http://www.w.w3.org/2000/svg" className="h-4 w-4 text-neutral-500 hover:text-primary-blue cursor-pointer" viewBox="0 0 20 20" fill="currentColor">
+    <svg onClick={onClick} xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-neutral-500 hover:text-primary-blue cursor-pointer" viewBox="0 0 20 20" fill="currentColor">
         <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
     </svg>
 );
+
+const ConfidenceIndicator: React.FC<{ score?: number }> = ({ score }) => {
+    if (typeof score !== 'number') return null;
+
+    const getColor = () => {
+        if (score > 0.9) return 'bg-accent-green';
+        if (score > 0.7) return 'bg-accent-yellow';
+        return 'bg-accent-red';
+    };
+
+    return (
+        <div className="relative group flex items-center">
+            <div className={`w-3 h-3 rounded-full ${getColor()}`} />
+            <div className="absolute left-full ml-2 w-max p-1.5 bg-neutral-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                Confidence: {(score * 100).toFixed(0)}%
+            </div>
+        </div>
+    );
+};
 
 interface ImageReviewModalProps {
   isOpen: boolean;
@@ -64,6 +83,7 @@ const ImageAnalysisCard: React.FC<{
                         checked={selections[key] || false}
                         onChange={(e) => onSelectionChange(key, e.target.checked)}
                     />
+                    <ConfidenceIndicator score={item.confidence} />
                     {isEditing ? (
                         <input
                             type="text"

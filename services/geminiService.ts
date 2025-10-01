@@ -26,8 +26,12 @@ const analyzedDetailSchema = {
     properties: {
         text: { type: Type.STRING },
         boundingBox: boundingBoxSchema,
+        confidence: {
+            type: Type.NUMBER,
+            description: "A score from 0.0 to 1.0 indicating the model's confidence in the OCR accuracy."
+        },
     },
-    required: ["text", "boundingBox"],
+    required: ["text", "boundingBox", "confidence"],
 };
 
 const salesforceSchema = {
@@ -312,16 +316,17 @@ export const analyzeEmailConversation = async (file: File): Promise<Omit<Synthes
 
 export const analyzeImage = async (file: File): Promise<ImageAnalysisReport> => {
     const prompt = `
-        You are an expert visual analyst AI.
-        Your task is to analyze the provided image with filename "${file.name}".
+        You are an AI specialist in document digitization and visual analysis, optimized for high-accuracy OCR.
+        Your task is to meticulously analyze the provided image, "${file.name}", treating it as a potentially scanned document.
         
         ## INSTRUCTIONS
-        1. Provide a concise summary of the image's content.
-        2. Extract all visible text (OCR) and provide its bounding box.
-        3. Detect key objects and provide their bounding boxes.
-        4. Identify any part numbers or people visible.
-        5. Set the 'fileName' field in your response to be exactly "${file.name}".
-        6. Your entire output must be a single, valid JSON object conforming to the provided schema. Bounding box coordinates must be normalized (0.0 to 1.0).
+        1.  **Prioritize Text Extraction:** If the image appears to be a document, focus on extracting all text with the highest possible accuracy.
+        2.  **Provide Confidence Scores:** For each piece of extracted text, you MUST provide a confidence score from 0.0 (no confidence) to 1.0 (complete confidence) representing the accuracy of the transcription.
+        3.  **Summarize Content:** Provide a concise summary of the image's content.
+        4.  **Detect Objects:** Detect key objects and provide their bounding boxes. This is secondary to text extraction if the image is a document.
+        5.  **Identify Entities:** Identify any part numbers or people visible.
+        6.  **Set Filename:** Ensure the 'fileName' field in your response is exactly "${file.name}".
+        7.  **Format Output:** Your entire output must be a single, valid JSON object conforming to the provided schema. Bounding box coordinates must be normalized (0.0 to 1.0).
     `;
     const report = await makeApiCall(file, prompt, imageReportSchema);
     // Ensure the filename from the prompt is correctly passed through
