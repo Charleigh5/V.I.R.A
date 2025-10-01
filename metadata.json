@@ -1,0 +1,5 @@
+{
+  "name": "V.I.R.A",
+  "description": "An AI-native Action Intelligence Platform to synthesize structured Salesforce data and unstructured email conversations into a unified, actionable workspace.",
+  "requestFramePermissions": []
+}
