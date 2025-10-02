@@ -1,17 +1,44 @@
-import React from 'react';
-import { Project } from '../types';
+import React, { useMemo } from 'react';
+import { Project, FileProcessingStatus } from '../types';
 import ProjectCard from './ProjectCard';
 import ChatHistory, { ChatMessage } from './ChatHistory';
 import Button from './ui/Button';
+import FileImporter from './ui/FileImporter';
+import { isSalesforceFile, isEmailFile } from '../utils/validation';
+
 
 interface DashboardProps {
   projects: Project[];
   onSelectProject: (projectId: string) => void;
   chatHistory: ChatMessage[];
   onOpenTemplateModal: () => void;
+  files: File[];
+  onFilesChange: (files: File[]) => void;
+  onSubmitFiles: () => void;
+  isProcessing: boolean;
+  uploadError: string | null;
+  fileStatuses: Record<string, { status: FileProcessingStatus; error?: string }>;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHistory, onOpenTemplateModal }) => {
+const Dashboard: React.FC<DashboardProps> = ({
+  projects,
+  onSelectProject,
+  chatHistory,
+  onOpenTemplateModal,
+  files,
+  onFilesChange,
+  onSubmitFiles,
+  isProcessing,
+  uploadError,
+  fileStatuses,
+}) => {
+  const hasSalesforceFile = useMemo(() => files.some(isSalesforceFile), [files]);
+  const hasEmailFile = useMemo(() => files.some(isEmailFile), [files]);
+
+  const handleFileRemove = (fileName: string) => {
+    onFilesChange(files.filter(f => f.name !== fileName));
+  };
+  
   return (
     <div className="flex-grow flex flex-col p-8 pb-32">
         <div className="flex justify-between items-center mb-6">
@@ -30,16 +57,40 @@ const Dashboard: React.FC<DashboardProps> = ({ projects, onSelectProject, chatHi
             </div>
         ) : (
             <div className="flex-grow flex items-center justify-center -mt-16">
-                 <div className="text-center p-12 bg-white rounded-xl shadow-sm border border-neutral-200">
+                 <div className="text-center p-8 bg-white rounded-xl shadow-sm border border-neutral-200 w-full max-w-4xl">
                     <div className="inline-block p-4 bg-blue-50 rounded-full">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-primary-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                         </svg>
                     </div>
-                    <h2 className="mt-4 text-xl font-semibold text-neutral-800">Ready to Synthesize a New Project?</h2>
-                    <p className="mt-2 text-sm text-neutral-500 max-w-md mx-auto">
-                        Simply drag and drop your Salesforce data and email conversations into the command bar at the bottom of the screen to get started.
-                    </p>
+                    <h2 className="mt-4 text-2xl font-semibold text-neutral-800">Ready to Synthesize a New Project?</h2>
+                     <div className="mt-8">
+                        <FileImporter
+                            files={files}
+                            onFilesSelected={onFilesChange}
+                            onFileRemove={handleFileRemove}
+                            acceptedFileTypes=".md,.pdf,.txt,.csv,.xls,.html,.doc,.ppt,.json,.eml,image/*,.tiff"
+                            isMultiple={true}
+                            fileStatuses={fileStatuses}
+                            title="Upload from device"
+                            description="Drag & drop Salesforce data, email threads, and images here."
+                        />
+                    </div>
+                    {uploadError && (
+                        <div className="mt-4 text-sm text-accent-red whitespace-pre-wrap bg-red-50 p-3 rounded-md">
+                            {uploadError}
+                        </div>
+                    )}
+                    <div className="mt-6">
+                        <Button
+                            onClick={onSubmitFiles}
+                            disabled={isProcessing || !hasSalesforceFile || !hasEmailFile}
+                            isLoading={isProcessing}
+                            className="px-8 py-3 text-base"
+                        >
+                            Synthesize Project
+                        </Button>
+                    </div>
                 </div>
             </div>
         )}

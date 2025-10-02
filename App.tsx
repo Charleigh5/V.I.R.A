@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Project, ProjectImage, RawImageAnalysis, SynthesizedProjectData, TaskStatus, TaskPriority, FileProcessingStatus } from './types';
+import { Project, ProjectImage, RawImageAnalysis, SynthesizedProjectData, TaskStatus, TaskPriority, FileProcessingStatus, ProjectDetails, ActionItem, ConversationNode, Attachment, MentionedAttachment } from './types';
 import Dashboard from './components/Dashboard';
 import ProjectWorkspace from './components/ProjectWorkspace';
 import ImageReviewModal from './components/ImageReviewModal';
@@ -15,7 +15,13 @@ import {
     MAX_SALESFORCE_FILE_SIZE_BYTES, 
     MAX_SALESFORCE_FILE_SIZE_MB, 
     MAX_EMAIL_FILE_SIZE_BYTES, 
-    MAX_EMAIL_FILE_SIZE_MB
+    MAX_EMAIL_FILE_SIZE_MB,
+    MAX_SALESFORCE_FILES,
+    MAX_EMAIL_FILES,
+    MAX_IMAGE_FILES,
+    MAX_IMAGE_FILE_SIZE_BYTES,
+    MAX_IMAGE_FILE_SIZE_MB,
+    MAX_TOTAL_FILES,
 } from './utils/validation';
 
 
@@ -131,6 +137,8 @@ const App: React.FC = () => {
   ]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileProcessingStatus, setFileProcessingStatus] = useState<Record<string, { status: FileProcessingStatus, error?: string }>>({});
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
 
   const [analysisResult, setAnalysisResult] = useState<{
@@ -170,35 +178,47 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleCreateProject = async (salesforceFile: File, emailFile: File, supportingImages: File[]) => {
-      addMessageToHistory({ sender: 'system', text: `Starting analysis of ${1 + 1 + supportingImages.length} files...` });
+  const handleCreateProject = async (salesforceFiles: File[], emailFiles: File[], imageFiles: File[]) => {
+      const allUniqueFiles = [...new Set([...salesforceFiles, ...emailFiles, ...imageFiles])];
+      addMessageToHistory({ sender: 'system', text: `Starting analysis of ${allUniqueFiles.length} files...` });
       setIsProcessing(true);
 
-      const allFilesForStatus = [salesforceFile, emailFile, ...supportingImages];
-      const initialStatuses = allFilesForStatus.reduce((acc, file) => {
+      const initialStatuses = allUniqueFiles.reduce((acc, file) => {
           acc[file.name] = { status: 'processing' };
           return acc;
       }, {} as Record<string, { status: FileProcessingStatus; error?: string | undefined; }>);
       setFileProcessingStatus(initialStatuses);
       
       try {
-          const salesforcePromise = analyzeSalesforceFile(salesforceFile).then(result => {
-              setFileProcessingStatus(prev => ({ ...prev, [salesforceFile.name]: { status: 'success' } }));
-              return result;
-          }).catch(e => {
-              setFileProcessingStatus(prev => ({ ...prev, [salesforceFile.name]: { status: 'error', error: e.message } }));
-              throw e;
+          const filesProcessed = new Set<string>();
+
+          const salesforcePromises = salesforceFiles.map(file => {
+              if (filesProcessed.has(file.name)) return Promise.resolve(null);
+              filesProcessed.add(file.name);
+              return analyzeSalesforceFile(file).then(result => {
+                  setFileProcessingStatus(prev => ({ ...prev, [file.name]: { status: 'success' } }));
+                  return result;
+              }).catch(e => {
+                  setFileProcessingStatus(prev => ({ ...prev, [file.name]: { status: 'error', error: e.message } }));
+                  throw e;
+              });
           });
 
-          const emailPromise = analyzeEmailConversation(emailFile).then(result => {
-              setFileProcessingStatus(prev => ({ ...prev, [emailFile.name]: { status: 'success' } }));
-              return result;
-          }).catch(e => {
-              setFileProcessingStatus(prev => ({ ...prev, [emailFile.name]: { status: 'error', error: e.message } }));
-              throw e;
+          const emailPromises = emailFiles.map(file => {
+              if (filesProcessed.has(file.name)) return Promise.resolve(null);
+              filesProcessed.add(file.name);
+              return analyzeEmailConversation(file).then(result => {
+                  setFileProcessingStatus(prev => ({ ...prev, [file.name]: { status: 'success' } }));
+                  return result;
+              }).catch(e => {
+                  setFileProcessingStatus(prev => ({ ...prev, [file.name]: { status: 'error', error: e.message } }));
+                  throw e;
+              });
           });
 
-          const imageProcessingPromises = supportingImages.map(async (img) => {
+          const imageProcessingPromises = imageFiles.map(async (img) => {
+              if (filesProcessed.has(img.name)) return Promise.resolve(null);
+              filesProcessed.add(img.name);
               const processedImage = await resizeAndCompressImage(img);
               return analyzeImage(processedImage).then(result => {
                   setFileProcessingStatus(prev => ({ ...prev, [img.name]: { status: 'success' } }));
@@ -209,86 +229,165 @@ const App: React.FC = () => {
               });
           });
           
-          const [salesforceData, emailData, ...imageResults] = await Promise.all([
-              salesforcePromise,
-              emailPromise,
-              ...imageProcessingPromises
+          const [salesforceResults, emailResults, imageResults] = await Promise.all([
+              Promise.all(salesforcePromises),
+              Promise.all(emailPromises),
+              Promise.all(imageProcessingPromises)
           ]);
 
+          const validSalesforceResults = salesforceResults.filter((r): r is { project_details: ProjectDetails } => r !== null);
+          const validEmailResults = emailResults.filter((r): r is Omit<SynthesizedProjectData, 'project_details' | 'image_reports'> => r !== null);
+          const validImageResults = imageResults.filter((r): r is { originalFile: File, report: any } => r !== null);
+          
+          const mergedProjectDetails: ProjectDetails = validSalesforceResults.reduce((acc, result) => {
+              return {
+                  project_name: acc.project_name || result.project_details.project_name,
+                  opportunity_number: acc.opportunity_number || result.project_details.opportunity_number,
+                  account_name: acc.account_name || result.project_details.account_name,
+                  opp_revenue: acc.opp_revenue || result.project_details.opp_revenue,
+              };
+          }, { project_name: '', opportunity_number: '', account_name: '', opp_revenue: 0 });
+
+          const mergedEmailData = validEmailResults.reduce((acc, result) => {
+              const maxNodeId = acc.conversation_nodes.reduce((maxId, node) => Math.max(maxId, node.node_id), 0);
+              const idMap = new Map<number, number>();
+              
+              const tempNodes = result.conversation_nodes.map((node, i) => {
+                  const newId = maxNodeId + 1 + i;
+                  idMap.set(node.node_id, newId);
+                  return { ...node, node_id: newId };
+              });
+
+              const reindexedNodes = tempNodes.map(node => {
+                  let newParentId: number | null = null;
+                  if (node.parent_node_id !== null && idMap.has(node.parent_node_id)) {
+                      newParentId = idMap.get(node.parent_node_id)!;
+                  }
+                  return { ...node, parent_node_id: newParentId };
+              });
+
+              return {
+                  action_items: [...acc.action_items, ...result.action_items],
+                  conversation_summary: (acc.conversation_summary + '\n\n' + result.conversation_summary).trim(),
+                  conversation_nodes: [...acc.conversation_nodes, ...reindexedNodes],
+                  attachments: [...acc.attachments, ...result.attachments],
+                  mentioned_attachments: [...acc.mentioned_attachments, ...result.mentioned_attachments],
+              };
+          }, { action_items: [] as ActionItem[], conversation_summary: '', conversation_nodes: [] as ConversationNode[], attachments: [] as Attachment[], mentioned_attachments: [] as MentionedAttachment[] });
+
           const synthesizedData: SynthesizedProjectData = {
-              ...salesforceData,
-              ...emailData,
-              image_reports: imageResults.map(r => r.report),
+              project_details: mergedProjectDetails,
+              ...mergedEmailData,
+              image_reports: validImageResults.map(r => r.report),
           };
           
           const sourceFiles = {
-              salesforceFileNames: [salesforceFile.name],
-              emailFileNames: [emailFile.name],
+              salesforceFileNames: salesforceFiles.map(f => f.name),
+              emailFileNames: emailFiles.map(f => f.name),
           };
           
-          const isEmailTextBased = /\.(txt|eml|csv|md|html|json)$/i.test(emailFile.name);
-          let rawEmailContentForUi = `Content from file "${emailFile.name}" was used for analysis. Preview is not available for this file type.`;
-          let rawSalesforceContentForUi = `Content from file "${salesforceFile.name}" was used for analysis. Preview is not available for this file type.`;
-
-          if (salesforceFile.name.endsWith('.md')) {
-              rawSalesforceContentForUi = await fileReader(salesforceFile);
+          let rawSalesforceContentForUi = '';
+          for (const file of salesforceFiles.filter(f => f.name.endsWith('.md'))) {
+              rawSalesforceContentForUi += `\n\n--- Content from ${file.name} ---\n\n` + await fileReader(file);
           }
+          if (!rawSalesforceContentForUi.trim()) rawSalesforceContentForUi = `Content from ${salesforceFiles.length} Salesforce file(s) was used for analysis. Preview is not available for all file types.`;
 
-          if (isEmailTextBased) {
-              try {
-                  let emailText = await fileReader(emailFile);
-                  if (emailFile.name.toLowerCase().endsWith('.csv')) {
-                      rawEmailContentForUi = parseAndFormatCsv(emailText);
-                  } else {
-                      rawEmailContentForUi = emailText;
-                  }
-              } catch (readError) {
-                  console.error("Failed to read text-based email file for UI preview:", readError);
-                  rawEmailContentForUi = `Could not read content from file "${emailFile.name}" for preview.`;
+          let rawEmailContentForUi = '';
+          for (const file of emailFiles.filter(f => /\.(txt|eml|csv|md|html|json)$/i.test(f.name))) {
+              let content = await fileReader(file);
+              if (file.name.toLowerCase().endsWith('.csv')) {
+                  content = parseAndFormatCsv(content);
               }
+              rawEmailContentForUi += `\n\n--- Content from ${file.name} ---\n\n` + content;
           }
+           if (!rawEmailContentForUi.trim()) rawEmailContentForUi = `Content from ${emailFiles.length} email file(s) was used for analysis. Preview is not available for all file types.`;
           
-          // Pass original image files for object URL creation
-          const originalImageFiles = imageResults.map(r => r.originalFile);
-          handleAnalysisComplete(synthesizedData, originalImageFiles, sourceFiles, rawSalesforceContentForUi, rawEmailContentForUi);
+          const originalImageFiles = validImageResults.map(r => r.originalFile);
+          handleAnalysisComplete(synthesizedData, originalImageFiles, sourceFiles, rawSalesforceContentForUi.trim(), rawEmailContentForUi.trim());
 
       } catch (err) {
-          const errorText = err instanceof Error ? err.message : "An unknown error occurred during analysis.";
           addMessageToHistory({ sender: 'system', text: `Project creation failed. One or more files could not be processed. Please review the errors and try again.` });
           console.error("Parallel analysis failed:", err);
       } finally {
           setIsProcessing(false);
-          // Optionally clear statuses after a delay
-          setTimeout(() => setFileProcessingStatus({}), 5000);
       }
   };
+  
+  const handleFileSubmit = async () => {
+    addMessageToHistory({ sender: 'user', text: `Uploading ${files.length} file(s)...`});
+    setUploadError(null);
 
-  const handleCommandSubmit = async (text: string, files: File[]) => {
-      addMessageToHistory({ sender: 'user', text: text || `Uploading ${files.length} file(s)...`});
+    const salesforceFiles = files.filter(isSalesforceFile);
+    const emailFiles = files.filter(isEmailFile);
+    const imageFiles = files.filter(isImageFile);
+    
+    if (salesforceFiles.length === 0 || emailFiles.length === 0) {
+        setUploadError("Project creation requires at least one Salesforce file (.md or image) and one email/conversation file. Please provide both types.");
+        return;
+    }
+    
+    handleCreateProject(salesforceFiles, emailFiles, imageFiles);
+  };
 
-      // Prioritize .md for salesforce, then look for other valid types.
-      const salesforceFile = files.find(f => f.name.endsWith('.md')) || files.find(isSalesforceFile);
-      // Find an email file that isn't the one we picked for Salesforce.
-      const emailFile = files.find(f => f !== salesforceFile && isEmailFile(f));
+  const handleFilesChange = (newFiles: File[]) => {
+    setUploadError(null);
+    const errors: string[] = [];
+    const prospectiveFiles = [...newFiles];
 
-      if (!salesforceFile || !emailFile) {
-          addMessageToHistory({ sender: 'system', text: "Project creation requires one Salesforce file (.md or image) and one supported email/conversation file. Please provide both."});
-          return;
-      }
-      
-      const sourceContentFiles = [salesforceFile, emailFile];
-      for (const file of sourceContentFiles) {
-          const isSf = file === salesforceFile;
-          const sizeLimit = isSf ? MAX_SALESFORCE_FILE_SIZE_BYTES : MAX_EMAIL_FILE_SIZE_BYTES;
-          const sizeLimitMb = isSf ? MAX_SALESFORCE_FILE_SIZE_MB : MAX_EMAIL_FILE_SIZE_MB;
-          if (file.size > sizeLimit) {
-              addMessageToHistory({ sender: 'system', text: `File Processing Error: File "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). The limit for this file type is ${sizeLimitMb}MB.` });
-              return;
-          }
-      }
-      const supportingImages = files.filter(f => f !== salesforceFile && f !== emailFile && isImageFile(f));
-      
-      handleCreateProject(salesforceFile, emailFile, supportingImages);
+    if (prospectiveFiles.length > MAX_TOTAL_FILES) {
+        errors.push(`• You can upload a maximum of ${MAX_TOTAL_FILES} files.`);
+    }
+
+    const salesforceFileCount = prospectiveFiles.filter(isSalesforceFile).length;
+    const emailFileCount = prospectiveFiles.filter(isEmailFile).length;
+    const imageFileCount = prospectiveFiles.filter(isImageFile).length;
+
+    if (salesforceFileCount > MAX_SALESFORCE_FILES) {
+        errors.push(`• You can upload a maximum of ${MAX_SALESFORCE_FILES} Salesforce files (.md or image).`);
+    }
+    if (emailFileCount > MAX_EMAIL_FILES) {
+        errors.push(`• You can upload a maximum of ${MAX_EMAIL_FILES} email thread files.`);
+    }
+    if (imageFileCount > MAX_IMAGE_FILES) {
+        errors.push(`• You can upload a maximum of ${MAX_IMAGE_FILES} images.`);
+    }
+
+    for (const file of newFiles) {
+        const existingFile = files.find(f => f.name === file.name);
+        if (existingFile) continue;
+
+        if (isSalesforceFile(file)) {
+            if (file.size > MAX_SALESFORCE_FILE_SIZE_BYTES) {
+                errors.push(`• SF File "${file.name}" is too large (max ${MAX_SALESFORCE_FILE_SIZE_MB}MB).`);
+            }
+        } 
+        if (isEmailFile(file)) {
+            if (file.size > MAX_EMAIL_FILE_SIZE_BYTES) {
+                errors.push(`• Email File "${file.name}" is too large (max ${MAX_EMAIL_FILE_SIZE_MB}MB).`);
+            }
+        } 
+        if (isImageFile(file)) {
+            if (file.size > MAX_IMAGE_FILE_SIZE_BYTES) {
+                errors.push(`• Image "${file.name}" is too large (max ${MAX_IMAGE_FILE_SIZE_MB}MB).`);
+            }
+        }
+        
+        if (!isSalesforceFile(file) && !isEmailFile(file) && !isImageFile(file)) {
+            errors.push(`• Unsupported file type: "${file.name}".`);
+        }
+    }
+
+    if (errors.length > 0) {
+        setUploadError(errors.join('\n'));
+        return;
+    }
+    
+    setFiles(newFiles);
+  };
+
+  const handleCommandSubmit = async (text: string) => {
+      addMessageToHistory({ sender: 'user', text: text});
+      addMessageToHistory({ sender: 'system', text: 'Text-based commands are not yet implemented.'});
   };
 
 
@@ -312,6 +411,8 @@ const App: React.FC = () => {
     addMessageToHistory({ sender: 'ai', text: `Project "${newProject.name}" has been successfully created!` });
     setReviewModalOpen(false);
     setAnalysisResult(null);
+    setFiles([]); // Clear files after successful creation
+    setFileProcessingStatus({});
     setSelectedProjectId(newProject.id);
   }, [analysisResult]);
 
@@ -367,6 +468,7 @@ const App: React.FC = () => {
   const handleCloseReviewModal = () => {
     setReviewModalOpen(false);
     setAnalysisResult(null);
+    setFileProcessingStatus({});
     addMessageToHistory({ sender: 'system', text: 'Project creation cancelled.' });
   };
 
@@ -383,6 +485,12 @@ const App: React.FC = () => {
                     onSelectProject={handleSelectProject}
                     chatHistory={chatHistory}
                     onOpenTemplateModal={() => setTemplateModalOpen(true)}
+                    files={files}
+                    onFilesChange={handleFilesChange}
+                    onSubmitFiles={handleFileSubmit}
+                    isProcessing={isProcessing}
+                    uploadError={uploadError}
+                    fileStatuses={fileProcessingStatus}
                 />
             )}
         </main>
@@ -391,7 +499,6 @@ const App: React.FC = () => {
           <CommandBar 
             onSubmit={handleCommandSubmit} 
             isProcessing={isProcessing}
-            fileStatuses={fileProcessingStatus}
           />
         )}
 

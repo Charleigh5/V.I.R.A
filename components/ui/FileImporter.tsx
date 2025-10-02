@@ -57,20 +57,27 @@ const FileImporter: React.FC<FileImporterProps> = ({
         const items = event.clipboardData?.items;
         if (!items) return;
 
-        const imageFiles: File[] = [];
+        const pastedFiles: File[] = [];
+        const timestamp = Date.now(); // Use a consistent timestamp for the batch
+
         for (let i = 0; i < items.length; i++) {
-            if (items[i].type.startsWith('image/')) {
+            if (items[i].kind === 'file') {
                 const blob = items[i].getAsFile();
                 if (blob) {
-                    const file = new File([blob], `pasted-image-${Date.now()}.png`, { type: blob.type });
-                    imageFiles.push(file);
+                    // Try to get a file extension from the MIME type
+                    const extension = blob.type.split('/')[1] || 'bin';
+                    // Create a unique filename using timestamp and index
+                    const fileName = `pasted-file-${timestamp}-${i}.${extension}`;
+                    const file = new File([blob], fileName, { type: blob.type });
+                    pastedFiles.push(file);
                 }
             }
         }
 
-        if (imageFiles.length > 0) {
+        if (pastedFiles.length > 0) {
             event.preventDefault();
-            onFilesSelected(isMultiple ? imageFiles : [imageFiles[0]]);
+            const newFiles = isMultiple ? [...files, ...pastedFiles] : [pastedFiles[0]];
+            onFilesSelected(newFiles);
         }
     };
     
@@ -78,7 +85,7 @@ const FileImporter: React.FC<FileImporterProps> = ({
     return () => {
         element.removeEventListener('paste', handlePaste);
     };
-  }, [isMultiple, onFilesSelected]);
+  }, [isMultiple, onFilesSelected, files]);
 
 
   const handleDragEvent = (e: React.DragEvent<HTMLDivElement>, type: 'enter' | 'leave' | 'over') => {
@@ -94,13 +101,17 @@ const FileImporter: React.FC<FileImporterProps> = ({
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     handleDragEvent(e, 'leave');
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      onFilesSelected(Array.from(e.dataTransfer.files));
+      const droppedFiles = Array.from(e.dataTransfer.files);
+      const newFiles = isMultiple ? [...files, ...droppedFiles] : [droppedFiles[0]];
+      onFilesSelected(newFiles);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      onFilesSelected(Array.from(e.target.files));
+      const selectedFiles = Array.from(e.target.files);
+      const newFiles = isMultiple ? [...files, ...selectedFiles] : [selectedFiles[0]];
+      onFilesSelected(newFiles);
     }
      // Reset the input value to allow re-uploading the same file
     if (inputRef.current) {
@@ -118,7 +129,15 @@ const FileImporter: React.FC<FileImporterProps> = ({
   };
 
   return (
-    <div ref={importerRef} className={`flex flex-col rounded-lg border-2 border-dashed bg-neutral-100 p-6 text-center transition-all duration-200 ${isDragging ? 'border-primary-blue bg-blue-50' : 'border-neutral-300'} ${className}`}>
+    <div 
+        ref={importerRef} 
+        tabIndex={0} 
+        className={`flex flex-col rounded-lg border-2 border-dashed bg-neutral-50 p-6 text-center transition-all duration-200 outline-none focus:ring-2 focus:ring-primary-blue focus:ring-offset-2 ${isDragging ? 'border-primary-blue bg-blue-50' : 'border-neutral-300'} ${className}`}
+        onDragEnter={(e) => handleDragEvent(e, 'enter')}
+        onDragLeave={(e) => handleDragEvent(e, 'leave')}
+        onDragOver={(e) => handleDragEvent(e, 'over')}
+        onDrop={handleDrop}
+    >
       <input
         ref={inputRef}
         type="file"
@@ -131,10 +150,6 @@ const FileImporter: React.FC<FileImporterProps> = ({
         <div
           className="flex flex-col items-center justify-center h-full cursor-pointer"
           onClick={() => inputRef.current?.click()}
-          onDragEnter={(e) => handleDragEvent(e, 'enter')}
-          onDragLeave={(e) => handleDragEvent(e, 'leave')}
-          onDragOver={(e) => handleDragEvent(e, 'over')}
-          onDrop={handleDrop}
         >
           <UploadIcon />
           <h3 className="mt-2 text-sm font-semibold text-neutral-900">{title}</h3>
@@ -147,15 +162,15 @@ const FileImporter: React.FC<FileImporterProps> = ({
       ) : (
         <div className="flex flex-col justify-between h-full">
             <div>
-                <h3 className="text-sm font-semibold text-neutral-900 text-left mb-2">{title}</h3>
-                <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-neutral-900 text-left mb-2">Selected Files</h3>
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
                     {files.map(file => (
-                        <div key={file.name} className="flex items-center justify-between text-left bg-white p-2 rounded-md border border-neutral-200">
+                        <div key={file.name} className="flex items-center justify-between text-left bg-white p-2 rounded-md border border-neutral-200 shadow-sm">
                              <div className="flex items-center min-w-0">
                                 <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center mr-2">
                                     <StatusIcon {...fileStatuses[file.name]} />
                                 </div>
-                                <FileTypeIcon fileName={file.name} className="h-10 w-10 text-primary-blue flex-shrink-0" />
+                                <FileTypeIcon fileName={file.name} className="h-8 w-8 text-primary-blue flex-shrink-0" />
                                 <div className="ml-3 min-w-0">
                                     <p className="text-sm font-medium text-neutral-800 truncate" title={file.name}>{file.name}</p>
                                     <p className="text-xs text-neutral-500">{formatBytes(file.size)}</p>
