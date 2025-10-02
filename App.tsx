@@ -6,12 +6,14 @@ import ImageReviewModal from './components/ImageReviewModal';
 import CommandBar from './components/CommandBar';
 import { GeminiApiError, analyzeSalesforceFile, analyzeEmailConversation, analyzeImage } from './services/geminiService';
 import { resizeAndCompressImage } from './utils/imageUtils';
+import { convertPdfToImages } from './utils/pdfUtils';
 import CreateFromTemplateModal from './components/CreateFromTemplateModal';
 import { projectTemplates, ProjectTemplate } from './services/templates';
 import { 
     isSalesforceFile, 
     isEmailFile,
     isImageFile,
+    isPdfFile,
     MAX_SALESFORCE_FILE_SIZE_BYTES, 
     MAX_SALESFORCE_FILE_SIZE_MB, 
     MAX_EMAIL_FILE_SIZE_BYTES, 
@@ -190,9 +192,32 @@ const App: React.FC = () => {
       setFileProcessingStatus(initialStatuses);
       
       try {
+          const allInputFiles = [...salesforceFiles, ...emailFiles, ...imageFiles];
+          const pdfsToProcess = allInputFiles.filter(isPdfFile);
+          const uniquePdfs = [...new Map(pdfsToProcess.map(file => [file.name, file])).values()];
+
+          uniquePdfs.forEach(pdf => {
+            setFileProcessingStatus(prev => ({ ...prev, [pdf.name]: { ...prev[pdf.name], status: 'processing' } }));
+          });
+
+          const conversionPromises = uniquePdfs.map(pdf => convertPdfToImages(pdf).catch(e => {
+            setFileProcessingStatus(prev => ({ ...prev, [pdf.name]: { status: 'error', error: `Failed to process PDF: ${e.message}` } }));
+            throw e;
+          }));
+          const convertedImageArrays = await Promise.all(conversionPromises);
+          const newImagesFromPdfs = convertedImageArrays.flat();
+          
+          uniquePdfs.forEach(pdf => {
+            setFileProcessingStatus(prev => ({ ...prev, [pdf.name]: { status: 'success' } }));
+          });
+          
+          const analysisSalesforceFiles = salesforceFiles.filter(f => !isPdfFile(f));
+          const analysisEmailFiles = emailFiles.filter(f => !isPdfFile(f));
+          const analysisImageFiles = [...imageFiles, ...newImagesFromPdfs];
+
           const filesProcessed = new Set<string>();
 
-          const salesforcePromises = salesforceFiles.map(file => {
+          const salesforcePromises = analysisSalesforceFiles.map(file => {
               if (filesProcessed.has(file.name)) return Promise.resolve(null);
               filesProcessed.add(file.name);
               return analyzeSalesforceFile(file).then(result => {
@@ -204,7 +229,7 @@ const App: React.FC = () => {
               });
           });
 
-          const emailPromises = emailFiles.map(file => {
+          const emailPromises = analysisEmailFiles.map(file => {
               if (filesProcessed.has(file.name)) return Promise.resolve(null);
               filesProcessed.add(file.name);
               return analyzeEmailConversation(file).then(result => {
@@ -216,9 +241,10 @@ const App: React.FC = () => {
               });
           });
 
-          const imageProcessingPromises = imageFiles.map(async (img) => {
+          const imageProcessingPromises = analysisImageFiles.map(async (img) => {
               if (filesProcessed.has(img.name)) return Promise.resolve(null);
               filesProcessed.add(img.name);
+              setFileProcessingStatus(prev => ({...prev, [img.name]: {status: 'processing'}}));
               const processedImage = await resizeAndCompressImage(img);
               return analyzeImage(processedImage).then(result => {
                   setFileProcessingStatus(prev => ({ ...prev, [img.name]: { status: 'success' } }));
@@ -322,7 +348,7 @@ const App: React.FC = () => {
     const imageFiles = files.filter(isImageFile);
     
     if (salesforceFiles.length === 0 || emailFiles.length === 0) {
-        setUploadError("Project creation requires at least one Salesforce file (.md or image) and one email/conversation file. Please provide both types.");
+        setUploadError("Project creation requires at least one Salesforce file (.md, image, or .pdf) and one email/conversation file. Please provide both types.");
         return;
     }
     
@@ -343,7 +369,7 @@ const App: React.FC = () => {
     const imageFileCount = prospectiveFiles.filter(isImageFile).length;
 
     if (salesforceFileCount > MAX_SALESFORCE_FILES) {
-        errors.push(`• You can upload a maximum of ${MAX_SALESFORCE_FILES} Salesforce files (.md or image).`);
+        errors.push(`• You can upload a maximum of ${MAX_SALESFORCE_FILES} Salesforce files.`);
     }
     if (emailFileCount > MAX_EMAIL_FILES) {
         errors.push(`• You can upload a maximum of ${MAX_EMAIL_FILES} email thread files.`);
@@ -355,6 +381,8 @@ const App: React.FC = () => {
     for (const file of newFiles) {
         const existingFile = files.find(f => f.name === file.name);
         if (existingFile) continue;
+        
+        const isSupported = isSalesforceFile(file) || isEmailFile(file);
 
         if (isSalesforceFile(file)) {
             if (file.size > MAX_SALESFORCE_FILE_SIZE_BYTES) {
@@ -366,13 +394,13 @@ const App: React.FC = () => {
                 errors.push(`• Email File "${file.name}" is too large (max ${MAX_EMAIL_FILE_SIZE_MB}MB).`);
             }
         } 
-        if (isImageFile(file)) {
+        if (isImageFile(file) && !isPdfFile(file)) { // PDF size is handled by SF/Email rules
             if (file.size > MAX_IMAGE_FILE_SIZE_BYTES) {
                 errors.push(`• Image "${file.name}" is too large (max ${MAX_IMAGE_FILE_SIZE_MB}MB).`);
             }
         }
         
-        if (!isSalesforceFile(file) && !isEmailFile(file) && !isImageFile(file)) {
+        if (!isSupported) {
             errors.push(`• Unsupported file type: "${file.name}".`);
         }
     }
