@@ -2,6 +2,26 @@ import React, { useState, useRef, useMemo } from 'react';
 import { ProjectImage, ImportedImageDetails, BoundingBox, AnalyzedDetail } from '../types';
 import Modal from './ui/Modal';
 
+const formatDate = (isoString: string) => {
+    if (!isoString) return "N/A";
+    try {
+        return new Date(isoString).toLocaleString(undefined, {
+            year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+    } catch {
+        return "Invalid Date";
+    }
+};
+
+const formatBytes = (bytes: number, decimals = 2) => {
+    if (!+bytes) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+};
+
 interface ImageViewProps {
   images: ProjectImage[];
 }
@@ -184,6 +204,13 @@ const ImageView: React.FC<ImageViewProps> = ({ images }) => {
                 </div>
                 <div className="md:w-1/2 space-y-4 max-h-96 overflow-y-auto pr-2">
                     <h3 className="font-bold text-lg text-neutral-800">{selectedImage.fileName}</h3>
+                    <div>
+                        <h4 className="font-semibold text-neutral-700">File Information</h4>
+                        <div className="text-sm text-neutral-600 bg-neutral-100 p-3 rounded-md mt-1 space-y-1">
+                            <p><strong>Upload Date:</strong> {formatDate(selectedImage.uploadDate)}</p>
+                            <p><strong>File Size:</strong> {formatBytes(selectedImage.fileSize)}</p>
+                        </div>
+                    </div>
                     <div>
                         <h4 className="font-semibold text-neutral-700">AI Summary</h4>
                         <p className="text-sm text-neutral-600 bg-neutral-100 p-3 rounded-md mt-1">{selectedImage.report.summary}</p>

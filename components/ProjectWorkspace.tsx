@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo } from 'react';
 import { Project, ActionItem } from '../types';
 import ActionItemsView from './ActionItemsView';
@@ -214,6 +215,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) 
 
       <ProjectChat 
         project={project}
+        actionItems={actionItems}
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}
       />

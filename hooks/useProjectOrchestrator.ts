@@ -16,6 +16,7 @@ import {
     MAX_EMAIL_FILE_SIZE_BYTES, MAX_EMAIL_FILE_SIZE_MB,
     MAX_IMAGE_FILE_SIZE_BYTES, MAX_IMAGE_FILE_SIZE_MB
 } from '../utils/validation';
+import { GeminiAnalysisPool, AggregateAnalysisError } from '../services/geminiAnalysisPool';
 
 // 1. STATE DEFINITION (FSM States and Context)
 
@@ -227,6 +228,8 @@ export const useProjectOrchestrator = (
 
     const runAnalysis = async () => {
         try {
+            const pool = new GeminiAnalysisPool({ maxConcurrent: 5 });
+
             const allInputFiles = context.files;
             const pdfsToProcess = allInputFiles.filter(isPdfFile);
             const uniquePdfs = [...new Map(pdfsToProcess.map(file => [file.name, file])).values()];
@@ -248,7 +251,7 @@ export const useProjectOrchestrator = (
             const analysisEmailFiles = emailFiles.filter(f => !isPdfFile(f));
             const analysisImageFiles = [...imageFiles, ...newImagesFromPdfs];
 
-            const salesforcePromises = analysisSalesforceFiles.map(file => 
+            const salesforceTasks = analysisSalesforceFiles.map(file => () =>
                 analyzeSalesforceFile(file).then(r => {
                     dispatch({ type: 'UPDATE_STATUS', payload: { fileName: file.name, status: 'success' }});
                     return r;
@@ -257,7 +260,8 @@ export const useProjectOrchestrator = (
                     throw e;
                 })
             );
-            const emailPromises = analysisEmailFiles.map(file => 
+
+            const emailTasks = analysisEmailFiles.map(file => () =>
                 analyzeEmailConversation(file).then(r => {
                     dispatch({ type: 'UPDATE_STATUS', payload: { fileName: file.name, status: 'success' }});
                     return r;
@@ -266,21 +270,28 @@ export const useProjectOrchestrator = (
                     throw e;
                 })
             );
-            const imageProcessingPromises = analysisImageFiles.map(async (img) => {
-                const processedImage = await resizeAndCompressImage(img);
-                return analyzeImage(processedImage).then(r => {
+
+            const imageProcessingTasks = analysisImageFiles.map(img => async () => {
+                try {
+                    const processedImage = await resizeAndCompressImage(img);
+                    const report = await analyzeImage(processedImage);
                     dispatch({ type: 'UPDATE_STATUS', payload: { fileName: img.name, status: 'success' }});
-                    return { originalFile: img, report: r };
-                }).catch(e => {
-                    dispatch({ type: 'UPDATE_STATUS', payload: { fileName: img.name, status: 'error', error: e.message }});
+                    return { 
+                        originalFile: img, 
+                        report,
+                        fileSize: img.size,
+                        uploadDate: new Date(img.lastModified).toISOString()
+                    };
+                } catch (e) {
+                    dispatch({ type: 'UPDATE_STATUS', payload: { fileName: img.name, status: 'error', error: (e as Error).message }});
                     throw e;
-                });
+                }
             });
 
             const [salesforceResults, emailResults, imageResults] = await Promise.all([
-                Promise.all(salesforcePromises),
-                Promise.all(emailPromises),
-                Promise.all(imageProcessingPromises)
+                pool.executeWithBackpressure(salesforceTasks),
+                pool.executeWithBackpressure(emailTasks),
+                pool.executeWithBackpressure(imageProcessingTasks)
             ]);
 
             // MERGING LOGIC
@@ -299,11 +310,24 @@ export const useProjectOrchestrator = (
             
             const synthesizedData: SynthesizedProjectData = { project_details: mergedProjectDetails, ...mergedEmailData, image_reports: imageResults.map(r => r.report) };
             const { image_reports, ...textData } = synthesizedData;
-            const originalImageFiles = imageResults.map(r => r.originalFile);
-            const rawImageAnalyses = image_reports?.map(report => ({ ...report, base64Data: URL.createObjectURL(originalImageFiles.find(f => f.name === report.fileName)!) })) || [];
+            
+            const rawImageAnalyses: RawImageAnalysis[] = imageResults.map(r => ({
+                ...r.report,
+                base64Data: URL.createObjectURL(r.originalFile),
+                fileSize: r.fileSize,
+                uploadDate: r.uploadDate,
+            }));
 
             let rawSalesforceContent = `Content from ${salesforceFiles.length} file(s). Preview unavailable.`;
+            if (analysisSalesforceFiles.length === 1 && analysisSalesforceFiles[0].name.endsWith('.md')) {
+                rawSalesforceContent = await analysisSalesforceFiles[0].text();
+            }
+
             let rawEmailContent = `Content from ${emailFiles.length} file(s). Preview unavailable.`;
+            if(analysisEmailFiles.length === 1 && (analysisEmailFiles[0].name.endsWith('.eml') || analysisEmailFiles[0].name.endsWith('.txt'))) {
+                rawEmailContent = await analysisEmailFiles[0].text();
+            }
+
 
             dispatch({ type: 'ANALYSIS_COMPLETE', payload: {
                 textData,
@@ -313,7 +337,21 @@ export const useProjectOrchestrator = (
                 rawEmailContent,
             }});
         } catch (err) {
-            dispatch({ type: 'SET_ERROR', error: 'Project creation failed. One or more files could not be processed.' });
+            let errorMessage = 'Project creation failed. One or more files could not be processed.';
+            if (err instanceof AggregateAnalysisError) {
+                console.error("Aggregate errors:", err.errors);
+                const fileNames = err.errors.map(e => {
+                    const match = e.message.match(/process (.*?)\./);
+                    return match ? match[1] : null;
+                }).filter(Boolean);
+                
+                if (fileNames.length > 0) {
+                     errorMessage = `Error processing files: ${[...new Set(fileNames)].join(', ')}. Please check them and try again.`;
+                }
+            } else if (err instanceof Error) {
+                 errorMessage = err.message;
+            }
+            dispatch({ type: 'SET_ERROR', error: errorMessage });
         }
     };
     runAnalysis();

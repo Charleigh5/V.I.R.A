@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Project, SynthesizedProjectData } from '../types';
+import { Project, ActionItem } from '../types';
 import { chatWithProjectContext } from '../services/geminiService';
-import Button from './ui/Button';
 
 interface ChatMessage {
   sender: 'user' | 'ai' | 'system';
@@ -10,11 +9,12 @@ interface ChatMessage {
 
 interface ProjectChatProps {
   project: Project;
+  actionItems: ActionItem[];
   isOpen: boolean;
   onClose: () => void;
 }
 
-const ProjectChat: React.FC<ProjectChatProps> = ({ project, isOpen, onClose }) => {
+const ProjectChat: React.FC<ProjectChatProps> = ({ project, actionItems, isOpen, onClose }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { sender: 'ai', text: `Hi! I'm your AI assistant for "${project.name}". Ask me anything about this project.` }
   ]);
@@ -37,7 +37,7 @@ const ProjectChat: React.FC<ProjectChatProps> = ({ project, isOpen, onClose }) =
     setIsLoading(true);
 
     try {
-      const response = await chatWithProjectContext(project.data, project.data.action_items, query);
+      const response = await chatWithProjectContext(project.data, actionItems, query);
       setMessages([...newMessages, { sender: 'ai', text: response }]);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Sorry, I couldn't get a response.";

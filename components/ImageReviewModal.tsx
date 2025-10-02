@@ -229,6 +229,8 @@ const ImageReviewModal: React.FC<ImageReviewModalProps> = ({ isOpen, onClose, an
         return {
             fileName: result.fileName,
             base64Data: result.base64Data,
+            fileSize: result.fileSize,
+            uploadDate: result.uploadDate,
             report: {
                 summary: result.summary,
                 importedDetails: importedDetails,

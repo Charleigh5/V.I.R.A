@@ -84,6 +84,8 @@ export interface ImageAnalysisReport {
 // Data passed to the review modal
 export interface RawImageAnalysis extends ImageAnalysisReport {
   base64Data: string;
+  fileSize: number; // in bytes
+  uploadDate: string; // ISO string
 }
 
 // New type for grouped details
@@ -98,6 +100,8 @@ export interface ImportedImageDetails {
 export interface ProjectImage {
   fileName: string;
   base64Data: string;
+  fileSize: number; // in bytes
+  uploadDate: string; // ISO string
   report: {
     summary: string;
     importedDetails: ImportedImageDetails;
