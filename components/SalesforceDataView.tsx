@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface SalesforceDataViewProps {
@@ -20,7 +21,7 @@ const SalesforceDataView: React.FC<SalesforceDataViewProps> = ({ markdownContent
   const highlightedKeys = ['Opportunity Revenue', 'Opp Revenue', 'Amount', 'Total Opportunity Amount'];
 
   return (
-    <div className="h-full overflow-y-auto bg-white rounded-lg shadow-md p-6">
+    <div className="h-full overflow-y-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
             {parsedData.map(({ key, value }, index) => (
                 <div key={index} className="border-b border-neutral-200 pb-2">

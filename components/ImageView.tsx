@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useMemo } from 'react';
 import { ProjectImage, ImportedImageDetails, BoundingBox, AnalyzedDetail } from '../types';
 import Modal from './ui/Modal';
@@ -24,6 +25,7 @@ const formatBytes = (bytes: number, decimals = 2) => {
 
 interface ImageViewProps {
   images: ProjectImage[];
+  isPanel?: boolean;
 }
 
 const CorrectedIcon: React.FC<{ originalText: string; confidence?: number }> = ({ originalText, confidence }) => (
@@ -59,7 +61,7 @@ const ConfidenceIndicator: React.FC<{ score?: number }> = ({ score }) => {
 };
 
 
-const ImageView: React.FC<ImageViewProps> = ({ images }) => {
+const ImageView: React.FC<ImageViewProps> = ({ images, isPanel = false }) => {
   const [selectedImage, setSelectedImage] = useState<ProjectImage | null>(null);
   const [highlightedBox, setHighlightedBox] = useState<BoundingBox | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -134,8 +136,8 @@ const ImageView: React.FC<ImageViewProps> = ({ images }) => {
   }
 
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold text-neutral-900 mb-4">Image Library & Reports</h1>
+    <div className={!isPanel ? "p-8" : ""}>
+      {!isPanel && <h1 className="text-2xl font-bold text-neutral-900 mb-4">Image Library & Reports</h1>}
       <div className="relative mb-6">
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-neutral-400 pointer-events-none" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />

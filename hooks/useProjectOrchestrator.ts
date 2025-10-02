@@ -23,6 +23,7 @@ import { GeminiAnalysisPool, AggregateAnalysisError } from '../services/geminiAn
 export enum ProjectLifecycle {
   IDLE = 'IDLE',
   VALIDATING = 'VALIDATING',
+  CONVERTING_PDFS = 'CONVERTING_PDFS',
   ANALYZING_PARALLEL = 'ANALYZING_PARALLEL',
   MERGING_RESULTS = 'MERGING_RESULTS',
   AWAITING_REVIEW = 'AWAITING_REVIEW',
@@ -41,6 +42,7 @@ interface AnalysisPayload {
 
 interface ProjectCreationContext {
   files: File[];
+  convertedImagesFromPdfs: File[];
   fileProcessingStatus: Record<string, { status: FileProcessingStatus; error?: string }>;
   error: string | null;
   analysisPayload: AnalysisPayload | null;
@@ -58,6 +60,7 @@ interface OrchestratorState {
 type OrchestratorEvent =
   | { type: 'SUBMIT_FILES'; files: File[] }
   | { type: 'VALIDATION_SUCCESS' }
+  | { type: 'PDF_CONVERSION_COMPLETE'; images: File[] }
   | { type: 'START_ANALYSIS' }
   | { type: 'UPDATE_STATUS'; payload: { fileName: string; status: FileProcessingStatus; error?: string } }
   | { type: 'ANALYSIS_COMPLETE'; payload: AnalysisPayload }
@@ -73,6 +76,7 @@ const initialState: OrchestratorState = {
   value: ProjectLifecycle.IDLE,
   context: {
     files: [],
+    convertedImagesFromPdfs: [],
     fileProcessingStatus: {},
     error: null,
     analysisPayload: null,
@@ -95,13 +99,16 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
 
     case ProjectLifecycle.VALIDATING:
       if (event.type === 'VALIDATION_SUCCESS') {
+        const hasPdfs = state.context.files.some(isPdfFile);
+        const nextState = hasPdfs ? ProjectLifecycle.CONVERTING_PDFS : ProjectLifecycle.ANALYZING_PARALLEL;
         const initialStatuses = state.context.files.reduce((acc, file) => {
             acc[file.name] = { status: 'processing' };
             return acc;
         }, {} as Record<string, { status: FileProcessingStatus; error?: string | undefined; }>);
+
         return {
           ...state,
-          value: ProjectLifecycle.ANALYZING_PARALLEL,
+          value: nextState,
           context: { ...state.context, fileProcessingStatus: initialStatuses },
         };
       }
@@ -114,6 +121,34 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
       }
       break;
     
+    case ProjectLifecycle.CONVERTING_PDFS:
+        if (event.type === 'PDF_CONVERSION_COMPLETE') {
+            return {
+                ...state,
+                value: ProjectLifecycle.ANALYZING_PARALLEL,
+                context: {
+                    ...state.context,
+                    convertedImagesFromPdfs: event.images
+                }
+            }
+        }
+        if (event.type === 'SET_ERROR') {
+             return { ...state, value: ProjectLifecycle.ERROR, context: { ...state.context, error: event.error } };
+        }
+        if (event.type === 'UPDATE_STATUS') {
+            return {
+                ...state,
+                context: {
+                    ...state.context,
+                    fileProcessingStatus: {
+                        ...state.context.fileProcessingStatus,
+                        [event.payload.fileName]: { status: event.payload.status, error: event.payload.error }
+                    }
+                }
+            }
+        }
+        break;
+
     case ProjectLifecycle.ANALYZING_PARALLEL:
         if (event.type === 'UPDATE_STATUS') {
             return {
@@ -221,6 +256,36 @@ export const useProjectOrchestrator = (
     }
   }, [value, context.files]);
 
+  // Side-effect for CONVERTING_PDFS
+  useEffect(() => {
+    if (value !== ProjectLifecycle.CONVERTING_PDFS) return;
+
+    const runPdfConversion = async () => {
+        const pdfsToProcess = context.files.filter(isPdfFile);
+        if (pdfsToProcess.length === 0) {
+            dispatch({ type: 'PDF_CONVERSION_COMPLETE', images: [] });
+            return;
+        }
+
+        try {
+            const conversionPromises = pdfsToProcess.map(pdf => convertPdfToImages(pdf).catch(e => {
+                dispatch({ type: 'UPDATE_STATUS', payload: { fileName: pdf.name, status: 'error', error: `PDF Fail: ${e.message}` } });
+                throw e; // Propagate error to fail Promise.all
+            }));
+            const convertedImageArrays = await Promise.all(conversionPromises);
+            const newImagesFromPdfs = convertedImageArrays.flat();
+
+            pdfsToProcess.forEach(pdf => dispatch({ type: 'UPDATE_STATUS', payload: { fileName: pdf.name, status: 'success' }}));
+            
+            dispatch({ type: 'PDF_CONVERSION_COMPLETE', images: newImagesFromPdfs });
+        } catch (error) {
+            dispatch({ type: 'SET_ERROR', error: 'Failed to convert one or more PDF files.' });
+        }
+    }
+    runPdfConversion();
+
+  }, [value, context.files]);
+
 
   // Side-effect for ANALYZING_PARALLEL
   useEffect(() => {
@@ -231,17 +296,6 @@ export const useProjectOrchestrator = (
             const pool = new GeminiAnalysisPool({ maxConcurrent: 5 });
 
             const allInputFiles = context.files;
-            const pdfsToProcess = allInputFiles.filter(isPdfFile);
-            const uniquePdfs = [...new Map(pdfsToProcess.map(file => [file.name, file])).values()];
-
-            const conversionPromises = uniquePdfs.map(pdf => convertPdfToImages(pdf).catch(e => {
-                dispatch({ type: 'UPDATE_STATUS', payload: { fileName: pdf.name, status: 'error', error: `PDF Fail: ${e.message}` } });
-                throw e;
-            }));
-            const convertedImageArrays = await Promise.all(conversionPromises);
-            const newImagesFromPdfs = convertedImageArrays.flat();
-            
-            uniquePdfs.forEach(pdf => dispatch({ type: 'UPDATE_STATUS', payload: { fileName: pdf.name, status: 'success' }}));
             
             const salesforceFiles = allInputFiles.filter(isSalesforceFile);
             const emailFiles = allInputFiles.filter(isEmailFile);
@@ -249,7 +303,7 @@ export const useProjectOrchestrator = (
 
             const analysisSalesforceFiles = salesforceFiles.filter(f => !isPdfFile(f));
             const analysisEmailFiles = emailFiles.filter(f => !isPdfFile(f));
-            const analysisImageFiles = [...imageFiles, ...newImagesFromPdfs];
+            const analysisImageFiles = [...imageFiles, ...context.convertedImagesFromPdfs];
 
             const salesforceTasks = analysisSalesforceFiles.map(file => () =>
                 analyzeSalesforceFile(file).then(r => {
@@ -355,7 +409,7 @@ export const useProjectOrchestrator = (
         }
     };
     runAnalysis();
-  }, [value, context.files]);
+  }, [value, context.files, context.convertedImagesFromPdfs]);
 
   // Side-effect for CREATING_PROJECT
   useEffect(() => {

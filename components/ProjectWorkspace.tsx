@@ -11,6 +11,7 @@ import EmailTranscriptView from './EmailTranscriptView';
 import CollapsibleSection from './ui/CollapsibleSection';
 import ProjectSummary from './ProjectSummary';
 import ProjectChat from './ProjectChat';
+import Panel from './ui/Panel';
 
 interface ProjectWorkspaceProps {
   project: Project;
@@ -18,9 +19,42 @@ interface ProjectWorkspaceProps {
 }
 
 type View = 'sources' | 'actions' | 'map' | 'images';
+type LayoutMode = 'focus' | 'split' | 'grid';
+
+const LayoutSwitcher: React.FC<{
+    activeMode: LayoutMode;
+    onModeChange: (mode: LayoutMode) => void;
+    disabled?: boolean;
+}> = ({ activeMode, onModeChange, disabled = false }) => {
+    // FIX: Changed JSX.Element to React.ReactElement to resolve "Cannot find namespace 'JSX'" error.
+    const modes: { id: LayoutMode; icon: React.ReactElement; label: string }[] = [
+        { id: 'focus', label: 'Focus', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C3.732 4.943 9.522 3 10 3s6.268 1.943 9.542 7c-3.274 5.057-9.064 7-9.542 7S3.732 15.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg> },
+        { id: 'split', label: 'Split', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm9 0h5v10h-5V5z" clipRule="evenodd" /></svg> },
+        { id: 'grid', label: 'Grid', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
+    ];
+
+    return (
+        <div className={`inline-flex rounded-md shadow-sm bg-neutral-200 p-1 ${disabled ? 'opacity-50' : ''}`} role="group">
+            {modes.map(mode => (
+                <button
+                    key={mode.id}
+                    type="button"
+                    title={mode.label}
+                    onClick={() => onModeChange(mode.id)}
+                    disabled={disabled}
+                    className={`inline-flex items-center gap-2 px-3 py-1 text-sm font-medium transition-colors ${activeMode === mode.id ? 'bg-white text-primary-blue rounded-md shadow' : 'bg-transparent text-neutral-600 hover:text-neutral-800'}`}
+                >
+                    {mode.icon}
+                </button>
+            ))}
+        </div>
+    );
+};
+
 
 const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) => {
   const [activeView, setActiveView] = useState<View>('sources');
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('focus');
   const [searchQuery, setSearchQuery] = useState('');
   
   // Centralized state for action items
@@ -84,19 +118,140 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) 
       node.summary.toLowerCase().includes(query)
     );
   }, [searchQuery, conversation_nodes]);
+  
+  const isFocusMode = layoutMode === 'focus';
 
   const NavItem: React.FC<{ view: View; label: string; disabled?: boolean }> = ({ view, label, disabled }) => (
     <button
       onClick={() => !disabled && setActiveView(view)}
       disabled={disabled}
       className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-        activeView === view
+        activeView === view && isFocusMode
           ? 'bg-primary-blue text-white'
           : 'text-neutral-700 hover:bg-neutral-200'
       } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       {label}
     </button>
+  );
+  
+  const focusContent = (
+      <>
+        {activeView === 'sources' && (
+            <div className="h-full flex flex-col gap-6">
+                {project.rawEmailContent || project.rawSalesforceContent ? (
+                    <>
+                    {project.rawEmailContent && (
+                        <CollapsibleSection title="Source (Email)" defaultOpen className="flex-[3] flex flex-col min-h-0">
+                            <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
+                            <EmailTranscriptView rawContent={project.rawEmailContent} />
+                            <div className="flex flex-col min-h-0">
+                                <h3 className="text-lg font-semibold text-neutral-700 mb-2 flex-shrink-0">Conversation Flow Chart</h3>
+                                <div className="flex-1 bg-white rounded-lg shadow-md overflow-hidden relative">
+                                <ConversationMapView nodes={conversation_nodes} allActionItems={actionItems} onCreateActionItem={handleOpenCreateActionItemModal} onLinkActionItem={handleLinkActionItem} />
+                                </div>
+                            </div>
+                            </div>
+                        </CollapsibleSection>
+                    )}
+                    {project.rawSalesforceContent && (
+                        <CollapsibleSection title="Source (Salesforce)" defaultOpen className="flex-[2] flex flex-col min-h-0">
+                        <SalesforceDataView markdownContent={project.rawSalesforceContent} />
+                        </CollapsibleSection>
+                    )}
+                    </>
+                ) : (
+                    <div className="flex-grow flex items-center justify-center">
+                        <div className="text-center p-10 bg-white rounded-lg shadow-sm">
+                            <p className="text-neutral-500">No raw source file data is available for this project.</p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        )}
+        {activeView === 'actions' && (
+            <ActionItemsView 
+            actionItems={actionItems}
+            onUpdateActionItem={handleUpdateActionItem}
+            conversationNodes={conversation_nodes}
+            onCreateActionItem={handleOpenCreateActionItemModal}
+            />
+        )}
+        {activeView === 'map' && (
+            <div className="h-full flex flex-col">
+            <div className="p-6 pb-4">
+                {conversation_summary && (
+                <div className="bg-blue-50 border border-primary-blue/30 text-neutral-800 p-4 rounded-lg mb-6 shadow-sm">
+                    <h4 className="font-bold text-sm text-primary-blue mb-1">Conversation Summary</h4>
+                    <p className="text-sm leading-relaxed">{conversation_summary}</p>
+                </div>
+                )}
+                <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-neutral-400 pointer-events-none" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                    type="text"
+                    placeholder="Search conversations by name, email, or summary..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-neutral-300 rounded-md shadow-sm focus:ring-primary-blue focus:border-primary-blue"
+                />
+                </div>
+            </div>
+            <div className="flex-grow min-h-0">
+                <ConversationMapView 
+                nodes={filteredConversationNodes}
+                allActionItems={actionItems}
+                onCreateActionItem={handleOpenCreateActionItemModal}
+                onLinkActionItem={handleLinkActionItem}
+                />
+            </div>
+            </div>
+        )}
+        {activeView === 'images' && project.images && <ImageView images={project.images} />}
+    </>
+  );
+
+
+  const multiPanelContent = (
+     <div className="grid grid-cols-2 grid-rows-2 gap-6 h-full">
+        {/* Panel 1: Action Items */}
+        <div className={`transition-all duration-500 ease-in-out ${layoutMode === 'split' ? 'row-span-2' : 'row-span-1'}`}>
+            <Panel title="Action Items">
+                <ActionItemsView isPanel={true} actionItems={actionItems} onUpdateActionItem={handleUpdateActionItem} conversationNodes={conversation_nodes} onCreateActionItem={handleOpenCreateActionItemModal}/>
+            </Panel>
+        </div>
+
+        {/* Panel 2: Conversation Map */}
+        <div className={`transition-all duration-500 ease-in-out ${layoutMode === 'split' ? 'row-span-2' : 'row-span-1'}`}>
+            <Panel title="Conversation Map" noPadding>
+                <ConversationMapView nodes={conversation_nodes} allActionItems={actionItems} onCreateActionItem={handleOpenCreateActionItemModal} onLinkActionItem={handleLinkActionItem} />
+            </Panel>
+        </div>
+
+        {/* Panel 3: Salesforce Data */}
+        <div className={`transition-all duration-500 ease-in-out ${layoutMode === 'split' ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
+            <Panel title="Salesforce Data">
+                {project.rawSalesforceContent ? (
+                    <SalesforceDataView markdownContent={project.rawSalesforceContent} />
+                ) : (
+                    <div className="flex items-center justify-center h-full text-neutral-500">No Salesforce data available.</div>
+                )}
+            </Panel>
+        </div>
+        
+        {/* Panel 4: Images & Reports */}
+        <div className={`transition-all duration-500 ease-in-out ${layoutMode === 'split' ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
+            <Panel title="Images & Reports">
+                {(project.images && project.images.length > 0) ? (
+                    <ImageView isPanel={true} images={project.images} />
+                ) : (
+                    <div className="flex items-center justify-center h-full text-neutral-500">No images available.</div>
+                )}
+            </Panel>
+        </div>
+    </div>
   );
 
   return (
@@ -112,10 +267,10 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) 
             </h2>
             <p className="text-xs text-neutral-500 mb-6">Opp. #{project_details.opportunity_number}</p>
             <nav className="space-y-2">
-              <NavItem view="sources" label="Data Sources" />
-              <NavItem view="actions" label="Action Items" />
-              <NavItem view="map" label="Conversation Map" />
-              <NavItem view="images" label="Images & Reports" disabled={!project.images || project.images.length === 0} />
+              <NavItem view="sources" label="Data Sources" disabled={!isFocusMode} />
+              <NavItem view="actions" label="Action Items" disabled={!isFocusMode} />
+              <NavItem view="map" label="Conversation Map" disabled={!isFocusMode} />
+              <NavItem view="images" label="Images & Reports" disabled={!isFocusMode || !project.images || project.images.length === 0} />
             </nav>
           </div>
           <div className="mt-auto pt-4 border-t border-neutral-200">
@@ -132,84 +287,26 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) 
           </div>
         </aside>
 
-        <main className="flex-1 overflow-y-auto">
-          <div className="sticky top-0 bg-neutral-100/80 backdrop-blur-sm z-10 p-6 pb-2">
-            <ProjectSummary project={project} actionItems={actionItems} />
+        <main className="flex-1 flex flex-col overflow-y-auto">
+          <header className="sticky top-0 bg-neutral-100/80 backdrop-blur-sm z-10 p-6 pb-2">
+             <div className="flex justify-between items-center gap-4">
+                <ProjectSummary project={project} actionItems={actionItems} />
+                <LayoutSwitcher activeMode={layoutMode} onModeChange={setLayoutMode} />
+             </div>
+          </header>
+          
+          <div className="flex-grow p-6 pt-4">
+              {isFocusMode ? (
+                  <div key="focus-mode" className="animate-fade-in h-full">
+                      {focusContent}
+                  </div>
+              ) : (
+                  <div key="multi-panel-mode" className="animate-fade-in h-full">
+                      {multiPanelContent}
+                  </div>
+              )}
           </div>
 
-           {activeView === 'sources' && (
-            <div className="p-6 pt-4 h-full flex flex-col gap-6">
-              {project.rawEmailContent || project.rawSalesforceContent ? (
-                <>
-                  {project.rawEmailContent && (
-                     <CollapsibleSection title="Source (Email)" defaultOpen className="flex-[3] flex flex-col min-h-0">
-                        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
-                          <EmailTranscriptView rawContent={project.rawEmailContent} />
-                          <div className="flex flex-col min-h-0">
-                            <h3 className="text-lg font-semibold text-neutral-700 mb-2 flex-shrink-0">Conversation Flow Chart</h3>
-                            <div className="flex-1 bg-white rounded-lg shadow-md overflow-hidden relative">
-                              <ConversationMapView nodes={conversation_nodes} allActionItems={actionItems} onCreateActionItem={handleOpenCreateActionItemModal} onLinkActionItem={handleLinkActionItem} />
-                            </div>
-                          </div>
-                        </div>
-                     </CollapsibleSection>
-                  )}
-                  {project.rawSalesforceContent && (
-                    <CollapsibleSection title="Source (Salesforce)" defaultOpen className="flex-[2] flex flex-col min-h-0">
-                      <SalesforceDataView markdownContent={project.rawSalesforceContent} />
-                    </CollapsibleSection>
-                  )}
-                </>
-              ) : (
-                <div className="flex-grow flex items-center justify-center">
-                    <div className="text-center p-10 bg-white rounded-lg shadow-sm">
-                        <p className="text-neutral-500">No raw source file data is available for this project.</p>
-                    </div>
-                </div>
-              )}
-            </div>
-          )}
-          {activeView === 'actions' && (
-            <ActionItemsView 
-              actionItems={actionItems}
-              onUpdateActionItem={handleUpdateActionItem}
-              conversationNodes={conversation_nodes}
-              onCreateActionItem={handleOpenCreateActionItemModal}
-            />
-          )}
-          {activeView === 'map' && (
-            <div className="h-full flex flex-col">
-              <div className="p-6 pb-4">
-                {conversation_summary && (
-                  <div className="bg-blue-50 border border-primary-blue/30 text-neutral-800 p-4 rounded-lg mb-6 shadow-sm">
-                    <h4 className="font-bold text-sm text-primary-blue mb-1">Conversation Summary</h4>
-                    <p className="text-sm leading-relaxed">{conversation_summary}</p>
-                  </div>
-                )}
-                <div className="relative">
-                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-neutral-400 pointer-events-none" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    type="text"
-                    placeholder="Search conversations by name, email, or summary..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-neutral-300 rounded-md shadow-sm focus:ring-primary-blue focus:border-primary-blue"
-                  />
-                </div>
-              </div>
-              <div className="flex-grow min-h-0">
-                <ConversationMapView 
-                  nodes={filteredConversationNodes}
-                  allActionItems={actionItems}
-                  onCreateActionItem={handleOpenCreateActionItemModal}
-                  onLinkActionItem={handleLinkActionItem}
-                />
-              </div>
-            </div>
-          )}
-          {activeView === 'images' && project.images && <ImageView images={project.images} />}
         </main>
       </div>
 

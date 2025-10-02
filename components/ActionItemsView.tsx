@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, DragEvent } from 'react';
 import { ActionItem, TaskStatus, TaskPriority, ConversationNode } from '../types';
 import Badge from './ui/Badge';
 import Button from './ui/Button';
@@ -10,7 +10,10 @@ interface ActionItemsViewProps {
   onUpdateActionItem: (item: ActionItem) => void;
   conversationNodes: ConversationNode[];
   onCreateActionItem: () => void;
+  isPanel?: boolean;
 }
+
+// --- SHARED HELPERS ---
 
 const getPriorityClass = (priority: TaskPriority) => {
   switch (priority) {
@@ -50,6 +53,7 @@ const formatDate = (dateString: string): string => {
   }
 };
 
+// --- LIST VIEW COMPONENTS ---
 
 const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) => void; sourceNode?: ConversationNode; }> = ({ item, onEdit, sourceNode }) => {
   const [isCompleted, setIsCompleted] = useState(item.status === TaskStatus.DONE);
@@ -116,13 +120,62 @@ const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) =>
   );
 };
 
+// --- KANBAN BOARD VIEW COMPONENTS ---
 
-const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdateActionItem, conversationNodes, onCreateActionItem }) => {
+type BoardStatus = 'Open' | 'In Progress' | 'Blocked' | 'Done';
+
+const KANBAN_COLUMNS: Record<BoardStatus, { title: string; statuses: TaskStatus[]; color: string }> = {
+    'Open': { title: 'Open', statuses: [TaskStatus.Open], color: 'bg-neutral-500' },
+    'In Progress': { title: 'In Progress', statuses: [TaskStatus.IN_PROGRESS, TaskStatus.InProcess, TaskStatus.TODO], color: 'bg-primary-blue' },
+    'Blocked': { title: 'Blocked', statuses: [TaskStatus.BLOCKED], color: 'bg-accent-red' },
+    'Done': { title: 'Done', statuses: [TaskStatus.DONE], color: 'bg-accent-green' },
+};
+
+const statusToBoardMap: { [key in TaskStatus]?: BoardStatus } = {
+    [TaskStatus.Open]: 'Open',
+    [TaskStatus.IN_PROGRESS]: 'In Progress',
+    [TaskStatus.InProcess]: 'In Progress',
+    [TaskStatus.TODO]: 'In Progress',
+    [TaskStatus.BLOCKED]: 'Blocked',
+    [TaskStatus.DONE]: 'Done',
+};
+
+
+const KanbanCard: React.FC<{ item: ActionItem, onEdit: (item: ActionItem) => void }> = ({ item, onEdit }) => {
+    const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
+        e.dataTransfer.setData("actionItemId", item.id);
+    };
+
+    return (
+        <div 
+            draggable 
+            onDragStart={handleDragStart}
+            className={`bg-white p-3 rounded-md shadow-sm border-l-4 ${getPriorityClass(item.priority)} cursor-grab active:cursor-grabbing`}
+        >
+            <div className="flex justify-between items-start">
+                <p className="font-semibold text-sm text-neutral-800 break-words">{item.subject}</p>
+                 <Button variant="tertiary" className="px-1 py-0.5 text-xs -mr-1" onClick={() => onEdit(item)}>
+                  Edit
+                </Button>
+            </div>
+            <p className="text-xs text-neutral-600 mt-1">{item.description.substring(0, 100)}{item.description.length > 100 ? '...' : ''}</p>
+            <div className="mt-3 flex justify-between items-center text-xs text-neutral-500">
+                <span>{item.assigned_to_name}</span>
+                <span>{formatDate(item.due_date)}</span>
+            </div>
+        </div>
+    );
+};
+
+
+const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdateActionItem, conversationNodes, onCreateActionItem, isPanel = false }) => {
   const [editingItem, setEditingItem] = useState<ActionItem | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [taskTypeFilter, setTaskTypeFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
+  const [draggedOverColumn, setDraggedOverColumn] = useState<BoardStatus | null>(null);
 
   const handleEditClick = (item: ActionItem) => {
     setEditingItem(item);
@@ -156,6 +209,22 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
       return statusMatch && priorityMatch && taskTypeMatch && assigneeMatch;
     });
   }, [actionItems, statusFilter, priorityFilter, taskTypeFilter, assigneeFilter]);
+  
+  const boardItems = useMemo(() => {
+    const grouped = {} as Record<BoardStatus, ActionItem[]>;
+    for (const key in KANBAN_COLUMNS) {
+        grouped[key as BoardStatus] = [];
+    }
+    
+    filteredItems.forEach(item => {
+        const boardStatus = statusToBoardMap[item.status];
+        if (boardStatus) {
+            grouped[boardStatus].push(item);
+        }
+    });
+    return grouped;
+  }, [filteredItems]);
+
 
   const handleClearFilters = () => {
     setStatusFilter('all');
@@ -164,16 +233,56 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
     setAssigneeFilter('');
   };
 
+  // --- Drag and Drop Handlers ---
+  const handleDragOver = (e: DragEvent<HTMLDivElement>, column: BoardStatus) => {
+      e.preventDefault();
+      setDraggedOverColumn(column);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>, targetColumn: BoardStatus) => {
+      e.preventDefault();
+      setDraggedOverColumn(null);
+      const actionItemId = e.dataTransfer.getData("actionItemId");
+      const item = actionItems.find(i => i.id === actionItemId);
+      if (item) {
+          // Use the first status in the target column's list as the new status
+          const newStatus = KANBAN_COLUMNS[targetColumn].statuses[0];
+          if (item.status !== newStatus) {
+              onUpdateActionItem({ ...item, status: newStatus });
+          }
+      }
+  };
+
+
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-neutral-900">Action Items</h1>
-        <Button onClick={onCreateActionItem}>
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 -ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          New Action Item
-        </Button>
+    <div className={!isPanel ? "p-6" : ""}>
+      <div className={`flex ${isPanel ? 'justify-end' : 'justify-between'} items-center mb-6`}>
+        {!isPanel && <h1 className="text-2xl font-bold text-neutral-900">Action Items</h1>}
+        <div className="flex items-center gap-4">
+            {/* View Switcher */}
+            <div className="inline-flex rounded-md shadow-sm bg-neutral-200 p-1" role="group">
+                <button
+                    type="button"
+                    onClick={() => setViewMode('list')}
+                    className={`px-3 py-1 text-sm font-medium ${viewMode === 'list' ? 'bg-white text-primary-blue rounded-md shadow' : 'bg-transparent text-neutral-600'}`}
+                >
+                    List
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setViewMode('board')}
+                    className={`px-3 py-1 text-sm font-medium ${viewMode === 'board' ? 'bg-white text-primary-blue rounded-md shadow' : 'bg-transparent text-neutral-600'}`}
+                >
+                    Board
+                </button>
+            </div>
+            <Button onClick={onCreateActionItem}>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 -ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              New Action Item
+            </Button>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow-sm mb-6 border border-neutral-200">
@@ -190,7 +299,6 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
               {Object.values(TaskStatus).map(status => <option key={status} value={status}>{status}</option>)}
             </select>
           </div>
-
           <div>
             <label htmlFor="priority-filter" className="block text-sm font-medium text-neutral-700">Priority</label>
             <select
@@ -203,7 +311,6 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
               {Object.values(TaskPriority).map(priority => <option key={priority} value={priority}>{priority}</option>)}
             </select>
           </div>
-
           <div>
             <label htmlFor="task-type-filter" className="block text-sm font-medium text-neutral-700">Task Type</label>
             <select
@@ -216,7 +323,6 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
               {uniqueTaskTypes.map(type => <option key={type} value={type}>{type}</option>)}
             </select>
           </div>
-
           <div>
             <label htmlFor="assignee-filter" className="block text-sm font-medium text-neutral-700">Assignee</label>
             <input
@@ -228,30 +334,54 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
               className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
             />
           </div>
-          
-          <Button variant="secondary" onClick={handleClearFilters}>
-            Clear Filters
-          </Button>
-
+          <Button variant="secondary" onClick={handleClearFilters}> Clear Filters </Button>
         </div>
       </div>
       
-      <div className="space-y-4">
-        {filteredItems.length > 0 ? (
-          filteredItems.map((item) => (
-            <ActionItemCard 
-              key={item.id} 
-              item={item} 
-              onEdit={handleEditClick} 
-              sourceNode={item.sourceConversationNodeId ? conversationNodeMap.get(item.sourceConversationNodeId) : undefined}
-            />
-          ))
-        ) : (
-          <div className="text-center py-10 bg-white rounded-lg shadow-sm">
-            <p className="text-neutral-500">No action items match the current filters.</p>
-          </div>
-        )}
-      </div>
+      {/* Conditional View Rendering */}
+      {viewMode === 'list' ? (
+        <div className="space-y-4">
+          {filteredItems.length > 0 ? (
+            filteredItems.map((item) => (
+              <ActionItemCard 
+                key={item.id} 
+                item={item} 
+                onEdit={handleEditClick} 
+                sourceNode={item.sourceConversationNodeId ? conversationNodeMap.get(item.sourceConversationNodeId) : undefined}
+              />
+            ))
+          ) : (
+            <div className="text-center py-10 bg-white rounded-lg shadow-sm">
+              <p className="text-neutral-500">No action items match the current filters.</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {(Object.keys(KANBAN_COLUMNS) as BoardStatus[]).map(columnKey => {
+                const column = KANBAN_COLUMNS[columnKey];
+                const items = boardItems[columnKey] || [];
+                return (
+                    <div 
+                        key={column.title}
+                        onDragOver={(e) => handleDragOver(e, columnKey)}
+                        onDragLeave={() => setDraggedOverColumn(null)}
+                        onDrop={(e) => handleDrop(e, columnKey)}
+                        className={`bg-neutral-100 rounded-lg p-3 transition-colors ${draggedOverColumn === columnKey ? 'bg-blue-100' : ''}`}
+                    >
+                        <div className={`flex justify-between items-center mb-4 px-1 pb-2 border-b-2 ${column.color.replace('bg-', 'border-')}`}>
+                            <h3 className="font-semibold text-sm text-neutral-700">{column.title}</h3>
+                            <span className={`text-xs font-bold text-white rounded-full h-5 w-5 flex items-center justify-center ${column.color}`}>{items.length}</span>
+                        </div>
+                        <div className="space-y-3 h-full min-h-[200px]">
+                            {items.map(item => <KanbanCard key={item.id} item={item} onEdit={handleEditClick} />)}
+                        </div>
+                    </div>
+                )
+            })}
+        </div>
+      )}
+
       {editingItem && (
         <EditActionItemModal
           isOpen={!!editingItem}

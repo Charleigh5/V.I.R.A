@@ -1,9 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Project, ProjectImage, TaskStatus, TaskPriority } from './types';
 import Dashboard from './components/Dashboard';
 import ProjectWorkspace from './components/ProjectWorkspace';
 import ImageReviewModal from './components/ImageReviewModal';
-import CommandBar from './components/CommandBar';
+import CommandPalette from './components/CommandPalette';
 import CreateFromTemplateModal from './components/CreateFromTemplateModal';
 import { projectTemplates, ProjectTemplate } from './services/templates';
 import { useProjectOrchestrator, ProjectLifecycle } from './hooks/useProjectOrchestrator';
@@ -18,8 +18,9 @@ const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [isTemplateModalOpen, setTemplateModalOpen] = useState(false);
+  const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
-    { sender: 'ai', text: "Welcome to V.I.R.A. To create a new project, please drop the relevant Salesforce and email thread files into the command bar below." }
+    { sender: 'ai', text: "Welcome to V.I.R.A. To create a new project, please drop the relevant Salesforce and email thread files into the upload area. You can also press CMD+K to open the command palette." }
   ]);
   const [uiFiles, setUiFiles] = useState<File[]>([]); // For file importer UI only
 
@@ -32,6 +33,19 @@ const App: React.FC = () => {
   }, []);
 
   const { state: orchestratorState, actions: orchestratorActions } = useProjectOrchestrator(handleProjectCreated);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            e.preventDefault();
+            setCommandPaletteOpen(isOpen => !isOpen);
+        }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const addMessageToHistory = (message: ChatMessage) => {
     setChatHistory(prev => [...prev, message]);
@@ -60,11 +74,6 @@ const App: React.FC = () => {
     // This state is only for the UI component to display the list of files.
     // The FSM gets the final list on submission.
     setUiFiles(newFiles);
-  };
-
-  const handleCommandSubmit = async (text: string) => {
-      addMessageToHistory({ sender: 'user', text: text});
-      addMessageToHistory({ sender: 'system', text: 'Text-based commands are not yet implemented.'});
   };
 
   const handleProjectCreateFromTemplate = (template: ProjectTemplate, projectName: string) => {
@@ -109,6 +118,7 @@ const App: React.FC = () => {
 
   const handleSelectProject = useCallback((projectId: string) => {
     setSelectedProjectId(projectId);
+    setCommandPaletteOpen(false);
   }, []);
 
   const handleBackToDashboard = useCallback(() => {
@@ -146,13 +156,17 @@ const App: React.FC = () => {
                 />
             )}
         </main>
-        
-        {!selectedProject && (
-          <CommandBar 
-            onSubmit={handleCommandSubmit} 
-            isProcessing={isProcessing}
-          />
-        )}
+
+        <CommandPalette
+            isOpen={isCommandPaletteOpen}
+            onClose={() => setCommandPaletteOpen(false)}
+            projects={projects}
+            onSelectProject={handleSelectProject}
+            onOpenTemplateModal={() => {
+                setCommandPaletteOpen(false);
+                setTemplateModalOpen(true);
+            }}
+        />
 
         {orchestratorState.context.analysisPayload && (
             <ImageReviewModal
