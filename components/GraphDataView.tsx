@@ -21,6 +21,7 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
 interface GraphDataViewProps {
   project: Project;
   actionItems: ActionItem[];
+  onUpdateActionItem: (item: ActionItem) => void;
 }
 
 // --- HELPER FUNCTIONS ---
@@ -49,10 +50,11 @@ const getStatusBadgeColor = (status: TaskStatus) => {
 }
 
 // --- MAIN COMPONENT ---
-const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems }) => {
+const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems, onUpdateActionItem }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [linkableTaskId, setLinkableTaskId] = useState<string>('');
 
   // --- DATA PROCESSING ---
   const graphData = useMemo(() => {
@@ -97,6 +99,23 @@ const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems }) =
     return { nodes, links };
   }, [project.data, actionItems]);
 
+  const unassignedActionItems = useMemo(() => 
+    actionItems.filter(item => !item.assigned_to_name || item.assigned_to_name.trim() === ''), 
+  [actionItems]);
+
+  const handleLinkTask = () => {
+    if (!linkableTaskId || !selectedNode || selectedNode.type !== 'person') return;
+
+    const taskToLink = actionItems.find(item => item.id === linkableTaskId);
+    if (taskToLink) {
+        onUpdateActionItem({
+            ...taskToLink,
+            assigned_to_name: selectedNode.data, // person's name is in `data`
+        });
+        setLinkableTaskId(''); // Reset dropdown
+    }
+  };
+
   // --- D3 RENDERING EFFECT ---
   useEffect(() => {
     const svgElement = d3.select(svgRef.current);
@@ -139,7 +158,10 @@ const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems }) =
             .data(graphData.nodes).join('circle')
             .attr('r', d => d.type === 'person' ? 12 : 16)
             .style('cursor', 'pointer')
-            .on('click', (event, d) => setSelectedNode(prev => prev?.id === d.id ? null : d))
+            .on('click', (event, d) => {
+              setSelectedNode(prev => (prev?.id === d.id ? null : d));
+              setLinkableTaskId(''); // Reset on node selection change
+            })
             .on('mouseover', (event, d) => setHoveredNodeId(d.id))
             .on('mouseout', () => setHoveredNodeId(null))
             .call(drag(simulation));
@@ -226,7 +248,7 @@ const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems }) =
         <svg ref={svgRef}></svg>
         {selectedNode && (
             <div className="absolute top-4 right-4 w-80 bg-white/80 backdrop-blur-sm rounded-lg shadow-lg p-4 border border-neutral-200 animate-fade-in">
-                <button onClick={() => setSelectedNode(null)} className="absolute top-2 right-2 text-neutral-400 hover:text-neutral-700">
+                <button onClick={() => { setSelectedNode(null); setLinkableTaskId(''); }} className="absolute top-2 right-2 text-neutral-400 hover:text-neutral-700">
                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
                 </button>
                 {selectedNode.type === 'person' ? (
@@ -234,12 +256,40 @@ const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems }) =
                         <h3 className="text-lg font-bold text-neutral-800">{selectedNode.data}</h3>
                         <p className="text-sm text-neutral-500 mb-2">Project Contributor</p>
                         <hr className="my-2"/>
-                        <h4 className="font-semibold text-sm mt-2 mb-1">Related Action Items:</h4>
-                        <ul className="text-xs space-y-1 max-h-48 overflow-y-auto">
-                           {actionItems.filter(item => item.assigned_to_name === selectedNode.data).map(item => (
+                        <h4 className="font-semibold text-sm mt-2 mb-1">Assigned Action Items:</h4>
+                        <ul className="text-xs space-y-1 max-h-32 overflow-y-auto">
+                           {actionItems
+                            .filter(item => item.assigned_to_name === selectedNode.data)
+                            .map(item => (
                                <li key={item.id} className="p-1.5 bg-neutral-100 rounded-md">{item.subject}</li>
                            ))}
                         </ul>
+                        {unassignedActionItems.length > 0 && (
+                            <div className="mt-4 pt-3 border-t">
+                                <h4 className="font-semibold text-sm mb-2">Link Unassigned Task</h4>
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={linkableTaskId}
+                                        onChange={(e) => setLinkableTaskId(e.target.value)}
+                                        className="block w-full text-xs rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue"
+                                    >
+                                        <option value="">Select a task...</option>
+                                        {unassignedActionItems.map(item => (
+                                            <option key={item.id} value={item.id} title={item.subject}>
+                                                {item.subject.length > 30 ? `${item.subject.substring(0, 30)}...` : item.subject}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        onClick={handleLinkTask}
+                                        disabled={!linkableTaskId}
+                                        className="px-2 py-1 text-xs font-semibold rounded-md bg-primary-blue text-white hover:bg-blue-600 disabled:bg-neutral-300 disabled:cursor-not-allowed flex-shrink-0"
+                                    >
+                                        Link
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div>

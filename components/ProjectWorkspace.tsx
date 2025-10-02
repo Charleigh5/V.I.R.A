@@ -211,7 +211,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) 
             </div>
         )}
         {activeView === 'images' && project.images && <ImageView images={project.images} />}
-        {activeView === 'graph' && <GraphDataView project={project} actionItems={actionItems} />}
+        {activeView === 'graph' && <GraphDataView project={project} actionItems={actionItems} onUpdateActionItem={handleUpdateActionItem} />}
     </>
   );
 
