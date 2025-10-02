@@ -67,7 +67,7 @@ const ConversationNodeDetailModal: React.FC<ConversationNodeDetailModalProps> = 
                 <select
                     value={selectedActionItemId}
                     onChange={(e) => setSelectedActionItemId(e.target.value)}
-                    className="block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm bg-white"
+                    className="block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm bg-neutral-200 text-neutral-900"
                     aria-label="Select a task to link"
                 >
                     <option value="">Select a task to link...</option>

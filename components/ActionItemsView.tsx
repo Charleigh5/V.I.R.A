@@ -57,6 +57,7 @@ const formatDate = (dateString: string): string => {
 
 const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) => void; sourceNode?: ConversationNode; }> = ({ item, onEdit, sourceNode }) => {
   const [isCompleted, setIsCompleted] = useState(item.status === TaskStatus.DONE);
+  const tooltipId = `source-tooltip-${item.id}`;
 
   useEffect(() => {
     setIsCompleted(item.status === TaskStatus.DONE);
@@ -74,28 +75,39 @@ const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) =>
           checked={isCompleted}
           onChange={handleToggle}
           className="h-5 w-5 rounded border-gray-300 text-primary-blue focus:ring-primary-blue mt-1 cursor-pointer"
+          aria-label={`Mark task as ${isCompleted ? 'not done' : 'done'}`}
         />
-        <div className="ml-4 flex-1">
-          <div className="flex justify-between items-start">
-            <div className="pr-4">
-                <p className={`font-semibold text-neutral-800 ${isCompleted ? 'line-through' : ''}`}>{item.subject}</p>
+        <div className="ml-4 flex-1 min-w-0">
+          <div className="flex justify-between items-start gap-4">
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                    <p className={`font-semibold text-neutral-800 ${isCompleted ? 'line-through' : ''}`}>{item.subject}</p>
+                    {sourceNode && (
+                        <div
+                            className="relative group text-primary-blue cursor-help flex-shrink-0"
+                            aria-label="View source conversation"
+                            aria-describedby={tooltipId}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                               <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                               <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h1a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+                            </svg>
+                            <div
+                                id={tooltipId}
+                                role="tooltip"
+                                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-neutral-800 text-white text-xs rounded-md shadow-lg opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 ease-in-out pointer-events-none z-10"
+                            >
+                               <p className="font-bold border-b border-neutral-600 pb-1 mb-1">Source Conversation:</p>
+                               <p className="italic">"{sourceNode.summary}"</p>
+                               <p className="text-right text-neutral-400 mt-1">- {sourceNode.speaker_name}</p>
+                               <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-neutral-800"></div>
+                           </div>
+                        </div>
+                    )}
+                </div>
                 <p className="text-sm text-neutral-600 mt-1">{item.description}</p>
             </div>
             <div className="flex items-center space-x-2 flex-shrink-0">
-                {sourceNode && (
-                    <div className="relative group text-primary-blue cursor-help">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                           <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
-                           <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h1a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
-                        </svg>
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-neutral-800 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                           <p className="font-bold border-b border-neutral-600 pb-1 mb-1">Source Conversation:</p>
-                           <p className="italic">"{sourceNode.summary}"</p>
-                           <p className="text-right text-neutral-400 mt-1">- {sourceNode.speaker_name}</p>
-                           <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-neutral-800"></div>
-                       </div>
-                    </div>
-                )}
                 <Button variant="tertiary" className="px-2 py-1 text-xs" onClick={() => onEdit(item)}>
                   Edit
                 </Button>
@@ -293,7 +305,7 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
               id="status-filter"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
+              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm bg-neutral-200 text-neutral-900"
             >
               <option value="all">All Statuses</option>
               {Object.values(TaskStatus).map(status => <option key={status} value={status}>{status}</option>)}
@@ -305,7 +317,7 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
               id="priority-filter"
               value={priorityFilter}
               onChange={(e) => setPriorityFilter(e.target.value)}
-              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
+              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm bg-neutral-200 text-neutral-900"
             >
               <option value="all">All Priorities</option>
               {Object.values(TaskPriority).map(priority => <option key={priority} value={priority}>{priority}</option>)}
@@ -317,7 +329,7 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
               id="task-type-filter"
               value={taskTypeFilter}
               onChange={(e) => setTaskTypeFilter(e.target.value)}
-              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
+              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm bg-neutral-200 text-neutral-900"
             >
               <option value="all">All Types</option>
               {uniqueTaskTypes.map(type => <option key={type} value={type}>{type}</option>)}

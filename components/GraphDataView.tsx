@@ -271,7 +271,7 @@ const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems, onU
                                     <select
                                         value={linkableTaskId}
                                         onChange={(e) => setLinkableTaskId(e.target.value)}
-                                        className="block w-full text-xs rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue"
+                                        className="block w-full text-xs rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue bg-neutral-200 text-neutral-900"
                                     >
                                         <option value="">Select a task...</option>
                                         {unassignedActionItems.map(item => (

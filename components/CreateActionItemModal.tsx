@@ -71,13 +71,13 @@ const CreateActionItemModal: React.FC<CreateActionItemModalProps> = ({ isOpen, o
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label htmlFor="status" className="block text-sm font-medium text-neutral-700">Status</label>
-            <select name="status" id="status" value={formData.status} onChange={handleChange} className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm">
+            <select name="status" id="status" value={formData.status} onChange={handleChange} className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm bg-neutral-200 text-neutral-900">
               {Object.values(TaskStatus).map(status => <option key={status} value={status}>{status}</option>)}
             </select>
           </div>
           <div>
             <label htmlFor="priority" className="block text-sm font-medium text-neutral-700">Priority</label>
-            <select name="priority" id="priority" value={formData.priority} onChange={handleChange} className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm">
+            <select name="priority" id="priority" value={formData.priority} onChange={handleChange} className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm bg-neutral-200 text-neutral-900">
               {Object.values(TaskPriority).map(priority => <option key={priority} value={priority}>{priority}</option>)}
             </select>
           </div>

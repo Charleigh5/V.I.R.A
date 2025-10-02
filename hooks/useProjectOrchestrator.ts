@@ -25,7 +25,6 @@ export enum ProjectLifecycle {
   VALIDATING = 'VALIDATING',
   CONVERTING_PDFS = 'CONVERTING_PDFS',
   ANALYZING_PARALLEL = 'ANALYZING_PARALLEL',
-  MERGING_RESULTS = 'MERGING_RESULTS',
   AWAITING_REVIEW = 'AWAITING_REVIEW',
   CREATING_PROJECT = 'CREATING_PROJECT',
   COMPLETE = 'COMPLETE',
@@ -163,10 +162,16 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
             }
         }
         if (event.type === 'ANALYSIS_COMPLETE') {
+            const payload = event.payload;
+            const hasImagesToReview = payload.imageData && payload.imageData.length > 0;
             return {
                 ...state,
-                value: ProjectLifecycle.MERGING_RESULTS,
-                context: { ...state.context, analysisPayload: event.payload }
+                value: hasImagesToReview ? ProjectLifecycle.AWAITING_REVIEW : ProjectLifecycle.CREATING_PROJECT,
+                context: { 
+                    ...state.context, 
+                    analysisPayload: payload,
+                    finalImages: hasImagesToReview ? null : [], // Pre-fill if skipping review
+                }
             }
         }
         if (event.type === 'SET_ERROR') {
@@ -177,13 +182,6 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
             }
         }
         break;
-
-    case ProjectLifecycle.MERGING_RESULTS:
-        if (state.context.analysisPayload?.imageData && state.context.analysisPayload.imageData.length > 0) {
-            return { ...state, value: ProjectLifecycle.AWAITING_REVIEW };
-        }
-        // No images to review, skip to creation
-        return { ...state, value: ProjectLifecycle.CREATING_PROJECT, context: { ...state.context, finalImages: [] } };
 
     case ProjectLifecycle.AWAITING_REVIEW:
         if (event.type === 'CONFIRM_REVIEW') {
@@ -397,14 +395,23 @@ export const useProjectOrchestrator = (
                 }
             });
 
+            // FIX: Add `as const` to the Promise.all call to ensure TypeScript infers a tuple type,
+            // which preserves the individual types of the awaited promises in the destructured result.
             const [salesforceResults, emailResults, imageResults] = await Promise.all([
                 pool.executeWithBackpressure(salesforceTasks),
                 pool.executeWithBackpressure(emailTasks),
                 pool.executeWithBackpressure(imageProcessingTasks)
-            ]);
+            ] as const);
 
             // MERGING LOGIC
-            const mergedProjectDetails: ProjectDetails = salesforceResults.reduce((acc, result) => ({...acc, ...result.project_details}), {} as ProjectDetails);
+            // FIX: Provide a complete, empty ProjectDetails object as the initial value for reduce.
+            // This satisfies the type requirement and handles cases where salesforceResults might be empty.
+            const mergedProjectDetails: ProjectDetails = salesforceResults.reduce((acc, result) => ({ ...acc, ...result.project_details }), {
+                project_name: '',
+                opportunity_number: '',
+                account_name: '',
+                opp_revenue: 0,
+            });
             const mergedEmailData = emailResults.reduce((acc, result) => {
                 const maxNodeId = acc.conversation_nodes.reduce((max, node) => Math.max(max, node.node_id), 0);
                 const reindexedNodes = result.conversation_nodes.map((node, i) => ({ ...node, node_id: maxNodeId + 1 + i, parent_node_id: node.parent_node_id ? maxNodeId + node.parent_node_id : null }));
