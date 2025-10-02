@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { FileProcessingStatus } from '../../types';
 import FileTypeIcon from './FileTypeIcon';
 
@@ -49,43 +49,45 @@ const FileImporter: React.FC<FileImporterProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const importerRef = useRef<HTMLDivElement>(null);
 
+  const handlePaste = useCallback((event: ClipboardEvent) => {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    const pastedFiles: File[] = [];
+    const timestamp = Date.now(); // Use a consistent timestamp for the batch
+
+    for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file') {
+            const blob = items[i].getAsFile();
+            if (blob) {
+                // Try to get a file extension from the MIME type
+                const extension = blob.type.split('/')[1] || 'bin';
+                // Create a unique filename using timestamp and index
+                const fileName = `pasted-file-${timestamp}-${i}.${extension}`;
+                const file = new File([blob], fileName, { type: blob.type });
+                pastedFiles.push(file);
+            }
+        }
+    }
+
+    if (pastedFiles.length > 0) {
+        event.preventDefault();
+        const newFiles = isMultiple ? [...files, ...pastedFiles] : [pastedFiles[0]];
+        onFilesSelected(newFiles);
+    }
+  }, [files, isMultiple, onFilesSelected]);
+
   useEffect(() => {
     const element = importerRef.current;
     if (!element) return;
-
-    const handlePaste = (event: ClipboardEvent) => {
-        const items = event.clipboardData?.items;
-        if (!items) return;
-
-        const pastedFiles: File[] = [];
-        const timestamp = Date.now(); // Use a consistent timestamp for the batch
-
-        for (let i = 0; i < items.length; i++) {
-            if (items[i].kind === 'file') {
-                const blob = items[i].getAsFile();
-                if (blob) {
-                    // Try to get a file extension from the MIME type
-                    const extension = blob.type.split('/')[1] || 'bin';
-                    // Create a unique filename using timestamp and index
-                    const fileName = `pasted-file-${timestamp}-${i}.${extension}`;
-                    const file = new File([blob], fileName, { type: blob.type });
-                    pastedFiles.push(file);
-                }
-            }
-        }
-
-        if (pastedFiles.length > 0) {
-            event.preventDefault();
-            const newFiles = isMultiple ? [...files, ...pastedFiles] : [pastedFiles[0]];
-            onFilesSelected(newFiles);
-        }
-    };
     
-    element.addEventListener('paste', handlePaste);
+    const listener = (e: Event) => handlePaste(e as ClipboardEvent);
+    
+    element.addEventListener('paste', listener);
     return () => {
-        element.removeEventListener('paste', handlePaste);
+        element.removeEventListener('paste', listener);
     };
-  }, [isMultiple, onFilesSelected, files]);
+  }, [handlePaste]);
 
 
   const handleDragEvent = (e: React.DragEvent<HTMLDivElement>, type: 'enter' | 'leave' | 'over') => {
