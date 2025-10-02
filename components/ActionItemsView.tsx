@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { ActionItem, TaskStatus, TaskPriority, ConversationNode } from '../types';
 import Badge from './ui/Badge';
@@ -8,6 +9,7 @@ interface ActionItemsViewProps {
   actionItems: ActionItem[];
   onUpdateActionItem: (item: ActionItem) => void;
   conversationNodes: ConversationNode[];
+  onCreateActionItem: () => void;
 }
 
 const getPriorityClass = (priority: TaskPriority) => {
@@ -115,10 +117,11 @@ const ActionItemCard: React.FC<{ item: ActionItem; onEdit: (item: ActionItem) =>
 };
 
 
-const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdateActionItem, conversationNodes }) => {
+const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdateActionItem, conversationNodes, onCreateActionItem }) => {
   const [editingItem, setEditingItem] = useState<ActionItem | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
+  const [taskTypeFilter, setTaskTypeFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('');
 
   const handleEditClick = (item: ActionItem) => {
@@ -138,26 +141,43 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
     new Map(conversationNodes.map(node => [node.node_id, node])), 
     [conversationNodes]
   );
+  
+  const uniqueTaskTypes = useMemo(() => {
+    const types = new Set(actionItems.map(item => item.task_types));
+    return Array.from(types).sort();
+  }, [actionItems]);
 
   const filteredItems = useMemo(() => {
     return actionItems.filter(item => {
       const statusMatch = statusFilter === 'all' || item.status === statusFilter;
       const priorityMatch = priorityFilter === 'all' || item.priority === priorityFilter;
+      const taskTypeMatch = taskTypeFilter === 'all' || item.task_types === taskTypeFilter;
       const assigneeMatch = assigneeFilter.trim() === '' || item.assigned_to_name.toLowerCase().includes(assigneeFilter.toLowerCase().trim());
-      return statusMatch && priorityMatch && assigneeMatch;
+      return statusMatch && priorityMatch && taskTypeMatch && assigneeMatch;
     });
-  }, [actionItems, statusFilter, priorityFilter, assigneeFilter]);
+  }, [actionItems, statusFilter, priorityFilter, taskTypeFilter, assigneeFilter]);
 
   const handleClearFilters = () => {
     setStatusFilter('all');
     setPriorityFilter('all');
+    setTaskTypeFilter('all');
     setAssigneeFilter('');
   };
 
   return (
     <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-neutral-900">Action Items</h1>
+        <Button onClick={onCreateActionItem}>
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 -ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+          New Action Item
+        </Button>
+      </div>
+
       <div className="bg-white p-4 rounded-lg shadow-sm mb-6 border border-neutral-200">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
           <div>
             <label htmlFor="status-filter" className="block text-sm font-medium text-neutral-700">Status</label>
             <select
@@ -181,6 +201,19 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
             >
               <option value="all">All Priorities</option>
               {Object.values(TaskPriority).map(priority => <option key={priority} value={priority}>{priority}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="task-type-filter" className="block text-sm font-medium text-neutral-700">Task Type</label>
+            <select
+              id="task-type-filter"
+              value={taskTypeFilter}
+              onChange={(e) => setTaskTypeFilter(e.target.value)}
+              className="mt-1 block w-full rounded-md border-neutral-300 shadow-sm focus:border-primary-blue focus:ring-primary-blue sm:text-sm"
+            >
+              <option value="all">All Types</option>
+              {uniqueTaskTypes.map(type => <option key={type} value={type}>{type}</option>)}
             </select>
           </div>
 

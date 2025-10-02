@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useMemo } from 'react';
 import Button from './ui/Button';
 import FileTypeIcon from './ui/FileTypeIcon';
+import { FileProcessingStatus } from '../types';
 import {
   MAX_SALESFORCE_FILES,
   MAX_EMAIL_FILES,
@@ -19,6 +20,7 @@ import {
 interface CommandBarProps {
   onSubmit: (text: string, files: File[]) => void;
   isProcessing: boolean;
+  fileStatuses: Record<string, { status: FileProcessingStatus, error?: string }>;
 }
 
 const CheckIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -33,7 +35,20 @@ const PendingIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
+const StatusIcon: React.FC<{ status?: FileProcessingStatus, error?: string }> = ({ status, error }) => {
+    if (!status) return null;
+    switch (status) {
+        case 'processing':
+            return <svg className="animate-spin h-4 w-4 text-primary-blue" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>;
+        case 'success':
+            return <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-accent-green" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>;
+        case 'error':
+            return <div className="group relative"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-accent-red" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-xs p-2 bg-neutral-800 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">{error || 'An unknown error occurred'}</div></div>;
+        default: return null;
+    }
+};
+
+const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing, fileStatuses }) => {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -197,8 +212,9 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, isProcessing }) => {
                     {files.length > 0 && 
                         <div className="flex flex-wrap gap-2">
                             {files.map(file => (
-                                <div key={file.name} className="bg-blue-100 text-primary-blue text-xs font-medium px-2 py-1 rounded-full flex items-center">
-                                    <FileTypeIcon fileName={file.name} className="h-4 w-4 mr-1.5" />
+                                <div key={file.name} className="bg-blue-100 text-primary-blue text-xs font-medium pl-2 pr-1 py-1 rounded-full flex items-center">
+                                    <StatusIcon {...fileStatuses[file.name]} />
+                                    <FileTypeIcon fileName={file.name} className="h-4 w-4 mr-1.5 ml-1" />
                                     <span className="truncate max-w-xs">{file.name}</span>
                                     <button onClick={() => removeFile(file.name)} className="ml-2 text-primary-blue hover:text-blue-700 flex-shrink-0">
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>

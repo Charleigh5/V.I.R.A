@@ -127,7 +127,7 @@ const App: React.FC = () => {
   const [isReviewModalOpen, setReviewModalOpen] = useState(false);
   const [isTemplateModalOpen, setTemplateModalOpen] = useState(false);
    const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
-    { sender: 'ai', text: "Welcome to the Project Dashboard. To create a new project, please describe your project and drop the relevant Salesforce (.md) and email thread (.txt, .eml, .csv) files into the command bar below." }
+    { sender: 'ai', text: "Welcome to V.I.R.A. To create a new project, please drop the relevant Salesforce and email thread files into the command bar below." }
   ]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileProcessingStatus, setFileProcessingStatus] = useState<Record<string, { status: FileProcessingStatus, error?: string }>>({});
@@ -382,16 +382,17 @@ const App: React.FC = () => {
                     projects={projects}
                     onSelectProject={handleSelectProject}
                     chatHistory={chatHistory}
-                    isProcessing={isProcessing}
-                    onCreateProject={handleCreateProject}
                     onOpenTemplateModal={() => setTemplateModalOpen(true)}
-                    fileStatuses={fileProcessingStatus}
                 />
             )}
         </main>
         
         {!selectedProject && (
-          <CommandBar onSubmit={handleCommandSubmit} isProcessing={isProcessing} />
+          <CommandBar 
+            onSubmit={handleCommandSubmit} 
+            isProcessing={isProcessing}
+            fileStatuses={fileProcessingStatus}
+          />
         )}
 
         {analysisResult && (

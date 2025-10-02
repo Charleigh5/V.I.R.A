@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SynthesizedProjectData, ProjectDetails, ImageAnalysisReport } from '../types';
+import { SynthesizedProjectData, ProjectDetails, ImageAnalysisReport, ActionItem } from '../types';
 
 export class GeminiApiError extends Error {
   public readonly isRetryable: boolean;
@@ -334,4 +334,49 @@ export const analyzeImage = async (file: File): Promise<ImageAnalysisReport> => 
         report.fileName = file.name;
     }
     return report;
+};
+
+export const chatWithProjectContext = async (projectData: Omit<SynthesizedProjectData, 'image_reports'>, actionItems: ActionItem[], userQuery: string): Promise<string> => {
+    try {
+        // Create a simplified context to keep the prompt efficient and focused
+        const context = {
+            projectName: projectData.project_details.project_name,
+            accountName: projectData.project_details.account_name,
+            revenue: projectData.project_details.opp_revenue,
+            conversationSummary: projectData.conversation_summary,
+            actionItems: actionItems.map(item => ({
+                subject: item.subject,
+                status: item.status,
+                priority: item.priority,
+                assignee: item.assigned_to_name,
+                dueDate: item.due_date,
+            })),
+        };
+
+        const systemInstruction = `You are an expert AI assistant for the project management platform V.I.R.A. Your task is to answer questions about a specific project based ONLY on the JSON data provided in the user prompt. Do not use any external knowledge or make assumptions beyond this data. If the answer cannot be found in the provided data, state that clearly. Provide concise and helpful answers.`;
+
+        const contents = `
+## Project Context Data
+\`\`\`json
+${JSON.stringify(context, null, 2)}
+\`\`\`
+
+## User's Question
+"${userQuery}"
+`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: contents,
+            config: {
+                systemInstruction: systemInstruction,
+                temperature: 0.2,
+            },
+        });
+
+        return response.text;
+    } catch (error) {
+        console.error("Error in chatWithProjectContext:", error);
+        throw new GeminiApiError("The AI assistant failed to respond. Please try again.", true);
+    }
 };
