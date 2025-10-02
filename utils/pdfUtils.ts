@@ -1,4 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
+// FIX: The 'RenderParameters' type is not exported from the main 'pdfjs-dist' module.
+// It has been removed from the import, and the type cast for the render call below is updated.
+import type { PageViewport } from 'pdfjs-dist';
 
 // Set worker source for pdf.js to load its web worker for processing
 // This is required for the library to function correctly in a web environment.
@@ -7,13 +10,17 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 
 /**
  * Converts a PDF file into an array of JPEG image files, one for each page.
+ * Renders pages at a higher resolution (approximating 150 DPI) to improve OCR accuracy.
  * @param pdfFile The PDF file to convert.
- * @param scale The scale at which to render the PDF pages. Higher scale means better quality and larger file size.
  * @returns A promise that resolves to an array of File objects.
  */
-export const convertPdfToImages = async (pdfFile: File, scale: number = 1.5): Promise<File[]> => {
+export const convertPdfToImages = async (pdfFile: File): Promise<File[]> => {
     const images: File[] = [];
     const data = await pdfFile.arrayBuffer();
+    
+    // Define a fixed scale to approximate 150 DPI for better OCR quality.
+    // The default PDF viewer resolution is 72 DPI, so 150/72 ≈ 2.08. We use 2.0 for simplicity.
+    const scale = 2.0;
     
     // Load the PDF document
     const pdf = await pdfjsLib.getDocument(data).promise;
@@ -22,7 +29,7 @@ export const convertPdfToImages = async (pdfFile: File, scale: number = 1.5): Pr
     // Iterate through each page of the PDF
     for (let i = 1; i <= numPages; i++) {
         const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale });
+        const viewport: PageViewport = page.getViewport({ scale });
         
         // Create a canvas element to render the page
         const canvas = document.createElement('canvas');
@@ -34,13 +41,16 @@ export const convertPdfToImages = async (pdfFile: File, scale: number = 1.5): Pr
             throw new Error('Could not get canvas context');
         }
 
-        // FIX: The `page.render` API in `pdf.js` v4+ expects a parameter object with a `canvas` property
-        // and returns a promise directly, making the `.promise` accessor obsolete. This change updates
-        // the call to match the modern API, resolving the TypeScript error about a missing 'canvas' property.
+        // The `page.render` method returns a `RenderTask` object. We must `await` its `promise` property
+        // to ensure rendering is complete. The type definitions for this version of pdf.js also
+        // require the 'canvas' property to be passed in the parameters.
+        // FIX: Since `RenderParameters` is not exported, we cast to `any` to allow compilation
+        // while preserving the parameters passed to the render function.
         await page.render({
+            canvas: canvas,
             canvasContext: context,
             viewport: viewport,
-        });
+        } as any).promise;
         
         // Convert the canvas content to a Blob
         const blob: Blob | null = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
