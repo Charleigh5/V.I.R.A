@@ -52,6 +52,7 @@ const getStatusBadgeColor = (status: TaskStatus) => {
 const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
   // --- DATA PROCESSING ---
   const graphData = useMemo(() => {
@@ -139,6 +140,8 @@ const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems }) =
             .attr('r', d => d.type === 'person' ? 12 : 16)
             .style('cursor', 'pointer')
             .on('click', (event, d) => setSelectedNode(prev => prev?.id === d.id ? null : d))
+            .on('mouseover', (event, d) => setHoveredNodeId(d.id))
+            .on('mouseout', () => setHoveredNodeId(null))
             .call(drag(simulation));
             
         const labels = svgElement.append("g").selectAll("text")
@@ -148,35 +151,62 @@ const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems }) =
             .text(d => d.type === 'person' ? d.data : d.data.subject)
             .style('font-size', '10px').style('fill', '#333').style('pointer-events', 'none');
 
-        const updateStyles = () => {
-            const connectedNodeIds = new Set<string>();
-            if (selectedNode) {
-                connectedNodeIds.add(selectedNode.id);
-                graphData.links.forEach(l => {
-                    if ((l.source as GraphNode).id === selectedNode.id) connectedNodeIds.add((l.target as GraphNode).id);
-                    if ((l.target as GraphNode).id === selectedNode.id) connectedNodeIds.add((l.source as GraphNode).id);
-                });
-            }
+        // --- STYLE UPDATES ---
+        const selectedConnections = new Set<string>();
+        if (selectedNode) {
+            selectedConnections.add(selectedNode.id);
+            graphData.links.forEach(l => {
+                if ((l.source as GraphNode).id === selectedNode.id) selectedConnections.add((l.target as GraphNode).id);
+                if ((l.target as GraphNode).id === selectedNode.id) selectedConnections.add((l.source as GraphNode).id);
+            });
+        }
 
-            node.attr('fill', d => d.type === 'person' ? '#4A90E2' : getStatusColor(d.data.status))
-                .transition().duration(300)
-                .style('opacity', d => selectedNode === null || connectedNodeIds.has(d.id) ? 1 : 0.2)
-                .attr('stroke', d => d.id === selectedNode?.id ? '#212121' : '#fff')
-                .attr('stroke-width', d => d.id === selectedNode?.id ? 3 : 1.5);
-
-            link.attr('stroke', '#999')
-                .transition().duration(300)
-                .style('opacity', d => selectedNode === null || connectedNodeIds.has(d.source.id) || connectedNodeIds.has(d.target.id) ? 0.6 : 0.1);
-
-            labels.transition().duration(300)
-                .style('opacity', d => selectedNode === null || connectedNodeIds.has(d.id) ? 1 : 0.2);
+        const hoveredConnections = new Set<string>();
+        if (hoveredNodeId) {
+            hoveredConnections.add(hoveredNodeId);
+            graphData.links.forEach(l => {
+                const sourceId = (l.source as GraphNode).id;
+                const targetId = (l.target as GraphNode).id;
+                if (sourceId === hoveredNodeId) hoveredConnections.add(targetId);
+                if (targetId === hoveredNodeId) hoveredConnections.add(sourceId);
+            });
+        }
+        
+        const isNodeVisible = (d: GraphNode) => {
+            if (selectedNode) return selectedConnections.has(d.id);
+            if (hoveredNodeId) return hoveredConnections.has(d.id);
+            return true;
         };
-        updateStyles();
+        
+        const isLinkVisible = (l: GraphLink) => {
+            const sourceId = (l.source as GraphNode).id;
+            const targetId = (l.target as GraphNode).id;
+            if (selectedNode) return selectedConnections.has(sourceId) && selectedConnections.has(targetId);
+            if (hoveredNodeId) return hoveredConnections.has(sourceId) && hoveredConnections.has(targetId);
+            return true;
+        };
+
+        const transitionDuration = 200;
+        const dimmedOpacity = selectedNode ? 0.2 : 0.3;
+
+        node
+            .attr('fill', d => d.type === 'person' ? '#4A90E2' : getStatusColor(d.data.status))
+            .attr('stroke', d => d.id === selectedNode?.id ? '#212121' : '#fff')
+            .attr('stroke-width', d => d.id === selectedNode?.id ? 3 : 1.5)
+            .transition().duration(transitionDuration)
+            .style('opacity', d => isNodeVisible(d) ? 1 : dimmedOpacity);
+
+        link
+            .attr('stroke', '#999')
+            .transition().duration(transitionDuration)
+            .style('stroke-opacity', l => isLinkVisible(l) ? 0.6 : 0.1);
+
+        labels
+            .transition().duration(transitionDuration)
+            .style('opacity', d => isNodeVisible(d) ? 1 : dimmedOpacity);
+
 
         simulation.on('tick', () => {
-            // FIX: Removed unnecessary and problematic casts. With `graphData.links` correctly typed,
-            // `d.source` and `d.target` are correctly inferred as `GraphNode` objects,
-            // which have the `.x` and `.y` properties from `d3.SimulationNodeDatum`.
             link.attr('x1', d => d.source.x!).attr('y1', d => d.source.y!)
                 .attr('x2', d => d.target.x!).attr('y2', d => d.target.y!);
             node.attr('cx', d => d.x!).attr('cy', d => d.y!);
@@ -189,7 +219,7 @@ const GraphDataView: React.FC<GraphDataViewProps> = ({ project, actionItems }) =
     resizeObserver.observe(container);
     return () => resizeObserver.disconnect();
 
-  }, [graphData, selectedNode]);
+  }, [graphData, selectedNode, hoveredNodeId]);
 
   return (
     <div className="w-full h-full relative bg-white rounded-lg shadow-md overflow-hidden">
