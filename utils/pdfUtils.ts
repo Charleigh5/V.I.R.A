@@ -12,9 +12,13 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
  * Converts a PDF file into an array of JPEG image files, one for each page.
  * Renders pages at a higher resolution (approximating 150 DPI) to improve OCR accuracy.
  * @param pdfFile The PDF file to convert.
+ * @param onProgress An optional callback to report conversion progress.
  * @returns A promise that resolves to an array of File objects.
  */
-export const convertPdfToImages = async (pdfFile: File): Promise<File[]> => {
+export const convertPdfToImages = async (
+    pdfFile: File,
+    onProgress?: (progress: { currentPage: number; totalPages: number }) => void
+): Promise<File[]> => {
     const images: File[] = [];
     const data = await pdfFile.arrayBuffer();
     
@@ -28,6 +32,11 @@ export const convertPdfToImages = async (pdfFile: File): Promise<File[]> => {
 
     // Iterate through each page of the PDF
     for (let i = 1; i <= numPages; i++) {
+        // Report progress
+        if (onProgress) {
+            onProgress({ currentPage: i, totalPages: numPages });
+        }
+
         const page = await pdf.getPage(i);
         const viewport: PageViewport = page.getViewport({ scale });
         

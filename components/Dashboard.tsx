@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Project, FileProcessingStatus, TaskStatus } from '../types';
+import { Project, FileStatus, TaskStatus } from '../types';
 import ProjectCard from './ProjectCard';
 import ChatHistory, { ChatMessage } from './ChatHistory';
 import Button from './ui/Button';
@@ -19,7 +19,7 @@ interface DashboardProps {
   onSubmitFiles: () => void;
   isProcessing: boolean;
   uploadError: string | null;
-  fileStatuses: Record<string, { status: FileProcessingStatus; error?: string }>;
+  fileStatuses: Record<string, FileStatus>;
 }
 
 const statusColors: Record<TaskStatus, string> = {
@@ -122,7 +122,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="flex-grow flex items-center justify-center -mt-16">
                  <div className="text-center p-8 bg-white rounded-xl shadow-sm border border-neutral-200 w-full max-w-4xl">
                     <div className="inline-block p-4 bg-blue-50 rounded-full">
-                        <svg xmlns="http://www.w.org/2000/svg" className="h-10 w-10 text-primary-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-primary-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                         </svg>
                     </div>

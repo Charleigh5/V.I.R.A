@@ -1,7 +1,7 @@
 import { useReducer, useEffect, useCallback } from 'react';
 import { 
     Project, ProjectImage, RawImageAnalysis, SynthesizedProjectData, 
-    FileProcessingStatus, ProjectDetails, ActionItem, ConversationNode, 
+    FileProcessingState, FileStatus, ProjectDetails, ActionItem, ConversationNode, 
     Attachment, MentionedAttachment 
 } from '../types';
 import { 
@@ -43,7 +43,7 @@ interface AnalysisPayload {
 interface ProjectCreationContext {
   files: File[];
   convertedImagesFromPdfs: File[];
-  fileProcessingStatus: Record<string, { status: FileProcessingStatus; error?: string }>;
+  fileProcessingStatus: Record<string, FileStatus>;
   error: string | null;
   analysisPayload: AnalysisPayload | null;
   finalImages: ProjectImage[] | null;
@@ -62,7 +62,7 @@ type OrchestratorEvent =
   | { type: 'VALIDATION_SUCCESS' }
   | { type: 'PDF_CONVERSION_COMPLETE'; images: File[] }
   | { type: 'START_ANALYSIS' }
-  | { type: 'UPDATE_STATUS'; payload: { fileName: string; status: FileProcessingStatus; error?: string } }
+  | { type: 'UPDATE_STATUS'; payload: { fileName: string; status: FileStatus } }
   | { type: 'ANALYSIS_COMPLETE'; payload: AnalysisPayload }
   | { type: 'CONFIRM_REVIEW'; images: ProjectImage[] }
   | { type: 'PROJECT_CREATED'; project: Project }
@@ -102,9 +102,9 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
         const hasPdfs = state.context.files.some(isPdfFile);
         const nextState = hasPdfs ? ProjectLifecycle.CONVERTING_PDFS : ProjectLifecycle.ANALYZING_PARALLEL;
         const initialStatuses = state.context.files.reduce((acc, file) => {
-            acc[file.name] = { status: 'processing' };
+            acc[file.name] = { state: 'queued', detail: 'Waiting in queue...' };
             return acc;
-        }, {} as Record<string, { status: FileProcessingStatus; error?: string | undefined; }>);
+        }, {} as Record<string, FileStatus>);
 
         return {
           ...state,
@@ -142,7 +142,7 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
                     ...state.context,
                     fileProcessingStatus: {
                         ...state.context.fileProcessingStatus,
-                        [event.payload.fileName]: { status: event.payload.status, error: event.payload.error }
+                        [event.payload.fileName]: event.payload.status
                     }
                 }
             }
@@ -157,7 +157,7 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
                     ...state.context,
                     fileProcessingStatus: {
                         ...state.context.fileProcessingStatus,
-                        [event.payload.fileName]: { status: event.payload.status, error: event.payload.error }
+                        [event.payload.fileName]: event.payload.status
                     }
                 }
             }
@@ -274,6 +274,19 @@ export const useProjectOrchestrator = (
     if (value !== ProjectLifecycle.CONVERTING_PDFS) return;
 
     const runPdfConversion = async () => {
+        // Mark non-PDFs as queued for analysis
+        context.files.forEach(file => {
+            if (!isPdfFile(file)) {
+                 dispatch({
+                    type: 'UPDATE_STATUS',
+                    payload: {
+                        fileName: file.name,
+                        status: { state: 'queued', detail: 'Waiting for analysis...' }
+                    }
+                });
+            }
+        });
+
         const pdfsToProcess = context.files.filter(isPdfFile);
         if (pdfsToProcess.length === 0) {
             dispatch({ type: 'PDF_CONVERSION_COMPLETE', images: [] });
@@ -281,14 +294,31 @@ export const useProjectOrchestrator = (
         }
 
         try {
-            const conversionPromises = pdfsToProcess.map(pdf => convertPdfToImages(pdf).catch(e => {
-                dispatch({ type: 'UPDATE_STATUS', payload: { fileName: pdf.name, status: 'error', error: `PDF Fail: ${e.message}` } });
-                throw e; // Propagate error to fail Promise.all
-            }));
+            const conversionPromises = pdfsToProcess.map(pdf => {
+                 const onProgress = (progress: { currentPage: number, totalPages: number }) => {
+                    dispatch({
+                        type: 'UPDATE_STATUS',
+                        payload: {
+                            fileName: pdf.name,
+                            status: {
+                                state: 'processing',
+                                detail: `Converting page ${progress.currentPage} of ${progress.totalPages}`,
+                                progress: progress.currentPage / progress.totalPages
+                            }
+                        }
+                    });
+                };
+                return convertPdfToImages(pdf, onProgress).catch(e => {
+                    const error = e instanceof Error ? e.message : 'Unknown PDF conversion error';
+                    dispatch({ type: 'UPDATE_STATUS', payload: { fileName: pdf.name, status: { state: 'error', error: `PDF Fail: ${error}` } } });
+                    throw e; // Propagate error to fail Promise.all
+                });
+            });
+
             const convertedImageArrays = await Promise.all(conversionPromises);
             const newImagesFromPdfs = convertedImageArrays.flat();
 
-            pdfsToProcess.forEach(pdf => dispatch({ type: 'UPDATE_STATUS', payload: { fileName: pdf.name, status: 'success' }}));
+            pdfsToProcess.forEach(pdf => dispatch({ type: 'UPDATE_STATUS', payload: { fileName: pdf.name, status: { state: 'success', detail: 'Converted' } }}));
             
             dispatch({ type: 'PDF_CONVERSION_COMPLETE', images: newImagesFromPdfs });
         } catch (error) {
@@ -307,6 +337,9 @@ export const useProjectOrchestrator = (
     const runAnalysis = async () => {
         try {
             const pool = new GeminiAnalysisPool({ maxConcurrent: 5 });
+            const updateStatus = (fileName: string, status: FileStatus) => {
+                dispatch({ type: 'UPDATE_STATUS', payload: { fileName, status } });
+            };
 
             const allInputFiles = context.files;
             
@@ -318,31 +351,39 @@ export const useProjectOrchestrator = (
             const analysisEmailFiles = emailFiles.filter(f => !isPdfFile(f));
             const analysisImageFiles = [...imageFiles, ...context.convertedImagesFromPdfs];
 
-            const salesforceTasks = analysisSalesforceFiles.map(file => () =>
-                analyzeSalesforceFile(file).then(r => {
-                    dispatch({ type: 'UPDATE_STATUS', payload: { fileName: file.name, status: 'success' }});
+            const salesforceTasks = analysisSalesforceFiles.map(file => () => {
+                updateStatus(file.name, { state: 'processing', detail: 'Analyzing Salesforce data...' });
+                return analyzeSalesforceFile(file).then(r => {
+                    updateStatus(file.name, { state: 'success', detail: 'Complete' });
                     return r;
                 }).catch(e => {
-                    dispatch({ type: 'UPDATE_STATUS', payload: { fileName: file.name, status: 'error', error: e.message }});
+                    const error = e instanceof Error ? e.message : 'Unknown error';
+                    updateStatus(file.name, { state: 'error', error });
                     throw e;
-                })
-            );
+                });
+            });
 
-            const emailTasks = analysisEmailFiles.map(file => () =>
-                analyzeEmailConversation(file).then(r => {
-                    dispatch({ type: 'UPDATE_STATUS', payload: { fileName: file.name, status: 'success' }});
+            const emailTasks = analysisEmailFiles.map(file => () => {
+                updateStatus(file.name, { state: 'processing', detail: 'Analyzing email content...' });
+                return analyzeEmailConversation(file).then(r => {
+                    updateStatus(file.name, { state: 'success', detail: 'Complete' });
                     return r;
                 }).catch(e => {
-                    dispatch({ type: 'UPDATE_STATUS', payload: { fileName: file.name, status: 'error', error: e.message }});
+                    const error = e instanceof Error ? e.message : 'Unknown error';
+                    updateStatus(file.name, { state: 'error', error });
                     throw e;
-                })
-            );
+                });
+            });
 
             const imageProcessingTasks = analysisImageFiles.map(img => async () => {
                 try {
+                    updateStatus(img.name, { state: 'processing', detail: 'Preprocessing image...' });
                     const processedImage = await resizeAndCompressImage(img);
+                    
+                    updateStatus(img.name, { state: 'processing', detail: 'Analyzing image...' });
                     const report = await analyzeImage(processedImage);
-                    dispatch({ type: 'UPDATE_STATUS', payload: { fileName: img.name, status: 'success' }});
+                    
+                    updateStatus(img.name, { state: 'success', detail: 'Complete' });
                     return { 
                         originalFile: img, 
                         report,
@@ -350,7 +391,8 @@ export const useProjectOrchestrator = (
                         uploadDate: new Date(img.lastModified).toISOString()
                     };
                 } catch (e) {
-                    dispatch({ type: 'UPDATE_STATUS', payload: { fileName: img.name, status: 'error', error: (e as Error).message }});
+                    const error = e instanceof Error ? e.message : 'Unknown error';
+                    updateStatus(img.name, { state: 'error', error });
                     throw e;
                 }
             });

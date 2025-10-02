@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { FileProcessingStatus } from '../../types';
+import { FileProcessingState, FileStatus } from '../../types';
 import FileTypeIcon from './FileTypeIcon';
 
 // Icons for different states
@@ -7,11 +7,12 @@ const UploadIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
 );
 
-const StatusIcon: React.FC<{ status?: FileProcessingStatus, error?: string }> = ({ status, error }) => {
-    if (!status) return null;
+const StatusIcon: React.FC<{ state?: FileProcessingState, error?: string }> = ({ state, error }) => {
+    if (!state) return null;
 
-    switch (status) {
+    switch (state) {
         case 'processing':
+        case 'queued':
             return <svg className="animate-spin h-5 w-5 text-primary-blue" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>;
         case 'success':
             return <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-accent-green" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>;
@@ -31,7 +32,7 @@ interface FileImporterProps {
   onFileRemove: (fileName: string) => void;
   isMultiple?: boolean;
   className?: string;
-  fileStatuses?: Record<string, { status: FileProcessingStatus, error?: string }>;
+  fileStatuses?: Record<string, FileStatus>;
 }
 
 const FileImporter: React.FC<FileImporterProps> = ({
@@ -166,23 +167,41 @@ const FileImporter: React.FC<FileImporterProps> = ({
             <div>
                 <h3 className="text-sm font-semibold text-neutral-900 text-left mb-2">Selected Files</h3>
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-                    {files.map(file => (
-                        <div key={file.name} className="flex items-center justify-between text-left bg-white p-2 rounded-md border border-neutral-200 shadow-sm">
-                             <div className="flex items-center min-w-0">
-                                <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center mr-2">
-                                    <StatusIcon {...fileStatuses[file.name]} />
+                    {files.map(file => {
+                        const fileStatus = fileStatuses[file.name];
+                        return (
+                            <div key={file.name} className="text-left bg-white p-2 rounded-md border border-neutral-200 shadow-sm">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center min-w-0">
+                                        <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center mr-2">
+                                            <StatusIcon state={fileStatus?.state} error={fileStatus?.error} />
+                                        </div>
+                                        <FileTypeIcon fileName={file.name} className="h-8 w-8 text-primary-blue flex-shrink-0" />
+                                        <div className="ml-3 min-w-0">
+                                            <p className="text-sm font-medium text-neutral-800 truncate" title={file.name}>{file.name}</p>
+                                            <p className="text-xs text-neutral-500">{formatBytes(file.size)}</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => onFileRemove(file.name)} className="ml-4 text-neutral-400 hover:text-accent-red flex-shrink-0">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+                                    </button>
                                 </div>
-                                <FileTypeIcon fileName={file.name} className="h-8 w-8 text-primary-blue flex-shrink-0" />
-                                <div className="ml-3 min-w-0">
-                                    <p className="text-sm font-medium text-neutral-800 truncate" title={file.name}>{file.name}</p>
-                                    <p className="text-xs text-neutral-500">{formatBytes(file.size)}</p>
-                                </div>
-                             </div>
-                            <button onClick={() => onFileRemove(file.name)} className="ml-4 text-neutral-400 hover:text-accent-red flex-shrink-0">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
-                            </button>
-                        </div>
-                    ))}
+                                {(fileStatus?.state === 'processing' && typeof fileStatus.progress === 'number') && (
+                                    <div className="mt-2 mx-1">
+                                        <div className="w-full bg-neutral-200 rounded-full h-1">
+                                            <div
+                                                className="bg-primary-blue h-1 rounded-full transition-all duration-300 ease-linear"
+                                                style={{ width: `${fileStatus.progress * 100}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                )}
+                                {fileStatus?.detail && (
+                                    <p className="text-xs text-neutral-500 mt-1.5 ml-1">{fileStatus.detail}</p>
+                                )}
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
             {isMultiple && (

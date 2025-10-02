@@ -143,4 +143,11 @@ export interface Project {
   images?: ProjectImage[];
 }
 
-export type FileProcessingStatus = 'processing' | 'success' | 'error';
+export type FileProcessingState = 'queued' | 'processing' | 'success' | 'error';
+
+export interface FileStatus {
+    state: FileProcessingState;
+    detail?: string; // e.g., "Converting page 2 of 5", "Analyzing..."
+    progress?: number; // 0 to 1
+    error?: string;
+}
