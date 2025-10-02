@@ -12,13 +12,14 @@ import CollapsibleSection from './ui/CollapsibleSection';
 import ProjectSummary from './ProjectSummary';
 import ProjectChat from './ProjectChat';
 import Panel from './ui/Panel';
+import GraphDataView from './GraphDataView';
 
 interface ProjectWorkspaceProps {
   project: Project;
   onBack: () => void;
 }
 
-type View = 'sources' | 'actions' | 'map' | 'images';
+type View = 'sources' | 'actions' | 'map' | 'images' | 'graph';
 type LayoutMode = 'focus' | 'split' | 'grid';
 
 const LayoutSwitcher: React.FC<{
@@ -210,6 +211,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) 
             </div>
         )}
         {activeView === 'images' && project.images && <ImageView images={project.images} />}
+        {activeView === 'graph' && <GraphDataView project={project} actionItems={actionItems} />}
     </>
   );
 
@@ -270,6 +272,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ project, onBack }) 
               <NavItem view="sources" label="Data Sources" disabled={!isFocusMode} />
               <NavItem view="actions" label="Action Items" disabled={!isFocusMode} />
               <NavItem view="map" label="Conversation Map" disabled={!isFocusMode} />
+              <NavItem view="graph" label="Graph View" disabled={!isFocusMode} />
               <NavItem view="images" label="Images & Reports" disabled={!isFocusMode || !project.images || project.images.length === 0} />
             </nav>
           </div>

@@ -206,8 +206,21 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
         break;
     
     case ProjectLifecycle.COMPLETE:
-    case ProjectLifecycle.ERROR:
     case ProjectLifecycle.AWAITING_REVIEW: // Allow cancellation from review modal
+        if (event.type === 'RESET' || event.type === 'CANCEL') {
+            return initialState;
+        }
+        break;
+        
+    case ProjectLifecycle.ERROR:
+        if (event.type === 'SUBMIT_FILES') {
+            // Allow restarting the process from an error state
+            return {
+                ...initialState,
+                value: ProjectLifecycle.VALIDATING,
+                context: { ...initialState.context, files: event.files },
+            };
+        }
         if (event.type === 'RESET' || event.type === 'CANCEL') {
             return initialState;
         }
@@ -391,19 +404,14 @@ export const useProjectOrchestrator = (
                 rawEmailContent,
             }});
         } catch (err) {
-            let errorMessage = 'Project creation failed. One or more files could not be processed.';
+            let errorMessage = 'An unexpected error occurred during file analysis.';
             if (err instanceof AggregateAnalysisError) {
-                console.error("Aggregate errors:", err.errors);
-                const fileNames = err.errors.map(e => {
-                    const match = e.message.match(/process (.*?)\./);
-                    return match ? match[1] : null;
-                }).filter(Boolean);
-                
-                if (fileNames.length > 0) {
-                     errorMessage = `Error processing files: ${[...new Set(fileNames)].join(', ')}. Please check them and try again.`;
-                }
+                // The individual file statuses have already been updated with specific errors.
+                // This global message directs the user to look at them.
+                errorMessage = 'Project synthesis failed. Please review the errors on the individual files below and try again.';
             } else if (err instanceof Error) {
-                 errorMessage = err.message;
+                // For non-aggregate errors, the message might be more specific.
+                errorMessage = `File analysis failed: ${err.message}`;
             }
             dispatch({ type: 'SET_ERROR', error: errorMessage });
         }
