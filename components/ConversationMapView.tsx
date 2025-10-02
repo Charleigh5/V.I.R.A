@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { ConversationNode, ActionItem } from '../types';
 import ConversationNodeDetailModal from './ConversationNodeDetailModal';
@@ -29,6 +30,16 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
 const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allActionItems, onCreateActionItem, onLinkActionItem }) => {
   const ref = useRef<SVGSVGElement>(null);
   const [selectedNode, setSelectedNode] = useState<ConversationNode | null>(null);
+
+  const nodesWithActionItems = useMemo(() => {
+      const nodeIds = new Set<number>();
+      allActionItems.forEach(item => {
+          if (item.sourceConversationNodeId) {
+              nodeIds.add(item.sourceConversationNodeId);
+          }
+      });
+      return nodeIds;
+  }, [allActionItems]);
 
   useEffect(() => {
     const svgElement = d3.select(ref.current);
@@ -96,8 +107,6 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allAct
             .join('line');
         
         const node = svg.append('g')
-            .attr('stroke', '#fff')
-            .attr('stroke-width', 1.5)
             .selectAll('circle')
             .data(graphNodes)
             .join('circle')
@@ -148,7 +157,16 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allAct
                 if (connectedNodeIds.has(d.id)) return '#A4C8F0'; // light blue
                 return '#E0E0E0'; // neutral-300 (dimmed)
             })
-            .attr('r', d => (d.id === selectedNodeId ? 20 : 15));
+            .attr('r', d => (d.id === selectedNodeId ? 20 : 15))
+            .attr('stroke', d => {
+                if (d.id === selectedNodeId) return '#F5A623'; // Use selection color to make it pop
+                if (nodesWithActionItems.has(d.id)) return '#7ED321'; // Green for linked
+                return '#fff'; // Default
+            })
+            .attr('stroke-width', d => {
+                if (d.id === selectedNodeId || nodesWithActionItems.has(d.id)) return 3;
+                return 1.5;
+            });
 
         link
             .transition().duration(300)
@@ -207,7 +225,7 @@ const ConversationMapView: React.FC<ConversationMapViewProps> = ({ nodes, allAct
     return () => {
         resizeObserver.disconnect();
     };
-  }, [nodes, selectedNode]);
+  }, [nodes, selectedNode, nodesWithActionItems]);
 
   if (nodes.length === 0) {
     return (

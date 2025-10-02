@@ -153,10 +153,11 @@ const statusToBoardMap: { [key in TaskStatus]?: BoardStatus } = {
 };
 
 
-const KanbanCard: React.FC<{ item: ActionItem, onEdit: (item: ActionItem) => void }> = ({ item, onEdit }) => {
+const KanbanCard: React.FC<{ item: ActionItem, onEdit: (item: ActionItem) => void, sourceNode?: ConversationNode }> = ({ item, onEdit, sourceNode }) => {
     const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
         e.dataTransfer.setData("actionItemId", item.id);
     };
+    const tooltipId = `kanban-source-tooltip-${item.id}`;
 
     return (
         <div 
@@ -165,7 +166,32 @@ const KanbanCard: React.FC<{ item: ActionItem, onEdit: (item: ActionItem) => voi
             className={`bg-white p-3 rounded-md shadow-sm border-l-4 ${getPriorityClass(item.priority)} cursor-grab active:cursor-grabbing`}
         >
             <div className="flex justify-between items-start">
-                <p className="font-semibold text-sm text-neutral-800 break-words">{item.subject}</p>
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                        <p className="font-semibold text-sm text-neutral-800 break-words">{item.subject}</p>
+                        {sourceNode && (
+                            <div
+                                className="relative group text-primary-blue cursor-help flex-shrink-0"
+                                aria-describedby={tooltipId}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                                    <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h1a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+                                </svg>
+                                <div
+                                    id={tooltipId}
+                                    role="tooltip"
+                                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-neutral-800 text-white text-xs rounded-md shadow-lg opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 ease-in-out pointer-events-none z-10"
+                                >
+                                   <p className="font-bold border-b border-neutral-600 pb-1 mb-1">Source:</p>
+                                   <p className="italic">"{sourceNode.summary}"</p>
+                                   <p className="text-right text-neutral-400 mt-1">- {sourceNode.speaker_name}</p>
+                                   <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-neutral-800"></div>
+                               </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
                  <Button variant="tertiary" className="px-1 py-0.5 text-xs -mr-1" onClick={() => onEdit(item)}>
                   Edit
                 </Button>
@@ -386,7 +412,14 @@ const ActionItemsView: React.FC<ActionItemsViewProps> = ({ actionItems, onUpdate
                             <span className={`text-xs font-bold text-white rounded-full h-5 w-5 flex items-center justify-center ${column.color}`}>{items.length}</span>
                         </div>
                         <div className="space-y-3 h-full min-h-[200px]">
-                            {items.map(item => <KanbanCard key={item.id} item={item} onEdit={handleEditClick} />)}
+                            {items.map(item => (
+                                <KanbanCard 
+                                    key={item.id} 
+                                    item={item} 
+                                    onEdit={handleEditClick} 
+                                    sourceNode={item.sourceConversationNodeId ? conversationNodeMap.get(item.sourceConversationNodeId) : undefined}
+                                />
+                            ))}
                         </div>
                     </div>
                 )
