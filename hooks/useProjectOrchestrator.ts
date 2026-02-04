@@ -191,6 +191,9 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
                 context: { ...state.context, finalImages: event.images }
             }
         }
+        if (event.type === 'RESET' || event.type === 'CANCEL') {
+            return initialState;
+        }
         break;
     
     case ProjectLifecycle.CREATING_PROJECT:
@@ -204,7 +207,6 @@ const orchestratorReducer = (state: OrchestratorState, event: OrchestratorEvent)
         break;
     
     case ProjectLifecycle.COMPLETE:
-    case ProjectLifecycle.AWAITING_REVIEW: // Allow cancellation from review modal
         if (event.type === 'RESET' || event.type === 'CANCEL') {
             return initialState;
         }
