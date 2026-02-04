@@ -140,7 +140,15 @@ const imageReportSchema = {
 };
 
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+
+if (!geminiApiKey) {
+    throw new Error(
+        'Missing VITE_GEMINI_API_KEY. Set it in your .env.local file (or environment) to use Gemini.'
+    );
+}
+
+const ai = new GoogleGenAI({ apiKey: geminiApiKey });
 
 const fileToGenerativePart = (file: File) => {
     return new Promise<{inlineData: {data: string, mimeType: string}}>((resolve, reject) => {
