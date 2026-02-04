@@ -1,4 +1,4 @@
-import { useReducer, useEffect, useCallback } from 'react';
+import { useReducer, useEffect, useCallback, useRef } from 'react';
 import { 
     Project, ProjectImage, RawImageAnalysis, SynthesizedProjectData, 
     FileProcessingState, FileStatus, ProjectDetails, ActionItem, ConversationNode, 
@@ -234,8 +234,48 @@ export const useProjectOrchestrator = (
     onSuccess: (project: Project) => void
 ) => {
   const [state, dispatch] = useReducer(orchestratorReducer, initialState);
+  const objectUrlsRef = useRef<string[]>([]);
+  const prevLifecycleRef = useRef<ProjectLifecycle>(initialState.value);
+  const prevAnalysisPayloadRef = useRef<AnalysisPayload | null>(initialState.context.analysisPayload);
 
   const { value, context } = state;
+
+  const revokeObjectUrls = useCallback(() => {
+    objectUrlsRef.current.forEach((url) => {
+      URL.revokeObjectURL(url);
+    });
+    objectUrlsRef.current = [];
+  }, []);
+
+  // Cleanup object URLs on unmount to avoid leaks during navigation.
+  useEffect(() => {
+    return () => {
+      revokeObjectUrls();
+    };
+  }, [revokeObjectUrls]);
+
+  // Revoke URLs when the review modal closes.
+  useEffect(() => {
+    if (prevLifecycleRef.current === ProjectLifecycle.AWAITING_REVIEW && value !== ProjectLifecycle.AWAITING_REVIEW) {
+      revokeObjectUrls();
+    }
+    prevLifecycleRef.current = value;
+  }, [value, revokeObjectUrls]);
+
+  // Revoke URLs when the analysis payload is cleared.
+  useEffect(() => {
+    if (prevAnalysisPayloadRef.current && !context.analysisPayload) {
+      revokeObjectUrls();
+    }
+    prevAnalysisPayloadRef.current = context.analysisPayload;
+  }, [context.analysisPayload, revokeObjectUrls]);
+
+  // Revoke URLs once a project has been created.
+  useEffect(() => {
+    if (value === ProjectLifecycle.COMPLETE && context.newlyCreatedProject) {
+      revokeObjectUrls();
+    }
+  }, [value, context.newlyCreatedProject, revokeObjectUrls]);
 
   // Side-effect for VALIDATING
   useEffect(() => {
@@ -427,12 +467,16 @@ export const useProjectOrchestrator = (
             const synthesizedData: SynthesizedProjectData = { project_details: mergedProjectDetails, ...mergedEmailData, image_reports: imageResults.map(r => r.report) };
             const { image_reports, ...textData } = synthesizedData;
             
-            const rawImageAnalyses: RawImageAnalysis[] = imageResults.map(r => ({
-                ...r.report,
-                base64Data: URL.createObjectURL(r.originalFile),
-                fileSize: r.fileSize,
-                uploadDate: r.uploadDate,
-            }));
+            const rawImageAnalyses: RawImageAnalysis[] = imageResults.map(r => {
+                const objectUrl = URL.createObjectURL(r.originalFile);
+                objectUrlsRef.current.push(objectUrl);
+                return {
+                    ...r.report,
+                    base64Data: objectUrl,
+                    fileSize: r.fileSize,
+                    uploadDate: r.uploadDate,
+                };
+            });
 
             let rawSalesforceContent = `Content from ${salesforceFiles.length} file(s). Preview unavailable.`;
             if (analysisSalesforceFiles.length === 1 && analysisSalesforceFiles[0].name.endsWith('.md')) {
