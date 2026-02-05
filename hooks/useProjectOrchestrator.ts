@@ -10,7 +10,7 @@ import {
 import { resizeAndCompressImage } from '../utils/imageUtils';
 import { convertPdfToImages } from '../utils/pdfUtils';
 import { 
-    isSalesforceFile, isEmailFile, isImageFile, isPdfFile, MAX_TOTAL_FILES,
+    hasConflictingLabels, isSalesforceFile, isEmailFile, isImageFile, isPdfFile, MAX_TOTAL_FILES,
     MAX_SALESFORCE_FILES, MAX_EMAIL_FILES, MAX_IMAGE_FILES,
     MAX_SALESFORCE_FILE_SIZE_BYTES, MAX_SALESFORCE_FILE_SIZE_MB,
     MAX_EMAIL_FILE_SIZE_BYTES, MAX_EMAIL_FILE_SIZE_MB,
@@ -245,9 +245,18 @@ export const useProjectOrchestrator = (
     const prospectiveFiles = context.files;
     const salesforceFiles = prospectiveFiles.filter(isSalesforceFile);
     const emailFiles = prospectiveFiles.filter(isEmailFile);
+    const salesforceFileSet = new Set(salesforceFiles);
+    const overlappingFiles = emailFiles.filter(file => salesforceFileSet.has(file));
+    const conflictingLabelFiles = prospectiveFiles.filter(hasConflictingLabels);
 
     if (salesforceFiles.length === 0 || emailFiles.length === 0) {
         errors.push("• At least one Salesforce file and one email file are required.");
+    }
+    if (conflictingLabelFiles.length > 0) {
+        errors.push(`• Files cannot be labeled as both Salesforce and email: ${conflictingLabelFiles.map(file => file.name).join(', ')}.`);
+    }
+    if (overlappingFiles.length > 0) {
+        errors.push(`• Files must be categorized as either Salesforce or email, not both: ${overlappingFiles.map(file => file.name).join(', ')}.`);
     }
     if (prospectiveFiles.length > MAX_TOTAL_FILES) errors.push(`• Max ${MAX_TOTAL_FILES} files.`);
     if (salesforceFiles.length > MAX_SALESFORCE_FILES) errors.push(`• Max ${MAX_SALESFORCE_FILES} Salesforce files.`);
@@ -345,8 +354,8 @@ export const useProjectOrchestrator = (
             const emailFiles = allInputFiles.filter(isEmailFile);
             const imageFiles = allInputFiles.filter(f => isImageFile(f) && !isPdfFile(f));
 
-            const analysisSalesforceFiles = salesforceFiles.filter(f => !isPdfFile(f));
-            const analysisEmailFiles = emailFiles.filter(f => !isPdfFile(f));
+            const analysisSalesforceFiles = salesforceFiles.filter(f => !isPdfFile(f) && !isImageFile(f));
+            const analysisEmailFiles = emailFiles.filter(f => !isPdfFile(f) && !isImageFile(f));
             const analysisImageFiles = [...imageFiles, ...context.convertedImagesFromPdfs];
 
             const salesforceTasks = analysisSalesforceFiles.map(file => () => {
