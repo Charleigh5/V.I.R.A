@@ -10,7 +10,7 @@ import {
 import { resizeAndCompressImage } from '../utils/imageUtils';
 import { convertPdfToImages } from '../utils/pdfUtils';
 import { 
-    isSalesforceFile, isEmailFile, isImageFile, isPdfFile, MAX_TOTAL_FILES,
+    hasConflictingLabels, isSalesforceFile, isEmailFile, isImageFile, isPdfFile, MAX_TOTAL_FILES,
     MAX_SALESFORCE_FILES, MAX_EMAIL_FILES, MAX_IMAGE_FILES,
     MAX_SALESFORCE_FILE_SIZE_BYTES, MAX_SALESFORCE_FILE_SIZE_MB,
     MAX_EMAIL_FILE_SIZE_BYTES, MAX_EMAIL_FILE_SIZE_MB,
@@ -247,9 +247,13 @@ export const useProjectOrchestrator = (
     const emailFiles = prospectiveFiles.filter(isEmailFile);
     const salesforceFileSet = new Set(salesforceFiles);
     const overlappingFiles = emailFiles.filter(file => salesforceFileSet.has(file));
+    const conflictingLabelFiles = prospectiveFiles.filter(hasConflictingLabels);
 
     if (salesforceFiles.length === 0 || emailFiles.length === 0) {
         errors.push("• At least one Salesforce file and one email file are required.");
+    }
+    if (conflictingLabelFiles.length > 0) {
+        errors.push(`• Files cannot be labeled as both Salesforce and email: ${conflictingLabelFiles.map(file => file.name).join(', ')}.`);
     }
     if (overlappingFiles.length > 0) {
         errors.push(`• Files must be categorized as either Salesforce or email, not both: ${overlappingFiles.map(file => file.name).join(', ')}.`);

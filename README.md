@@ -35,4 +35,4 @@ The app expects distinct Salesforce and email files (non-overlapping sets). Use 
 - Images (`.jpg`, `.jpeg`, `.png`, `.tiff`)
 - PDF pages are converted to images automatically
 
-If a file could fit more than one category, include `salesforce` or `email` in the filename to explicitly route it to that pipeline (images are always treated as images). 
+If a file could fit more than one category, include `salesforce` or `email` in the filename to explicitly route it to that pipeline (images are always treated as images). Avoid labeling a file with both keywords. 
